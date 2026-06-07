@@ -16,12 +16,15 @@ class DBConfig:
     database: str
 
 
-def load_config(env_path: Path | None = None) -> DBConfig:
+def load_config(env_path: Path | None = None, test: bool = False) -> DBConfig:
     """
     Lee el archivo .env y devuelve un DBConfig con las credenciales MySQL.
 
     Busca el .env en el directorio raíz del proyecto (dos niveles arriba de
     este archivo). Si no existe, lanza FileNotFoundError con instrucciones claras.
+
+    Si ``test`` es True, usa la base de datos de pruebas (``DB_NAME_TEST`` del
+    .env, o ``<DB_NAME>_test`` por defecto) para no tocar nunca los datos reales.
     """
     if env_path is None:
         env_path = Path(__file__).parent.parent / ".env"
@@ -44,12 +47,15 @@ def load_config(env_path: Path | None = None) -> DBConfig:
         values[key.strip()] = value.strip()
 
     try:
+        database = values["DB_NAME"]
+        if test:
+            database = values.get("DB_NAME_TEST") or f"{database}_test"
         return DBConfig(
             host=values["DB_HOST"],
             port=int(values["DB_PORT"]),
             user=values["DB_USER"],
             password=values["DB_PASSWORD"],
-            database=values["DB_NAME"],
+            database=database,
         )
     except KeyError as e:
         raise KeyError(
