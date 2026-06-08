@@ -119,6 +119,16 @@ class App:
             background=THEME["accent"],
             foreground=THEME["bg"],
         )
+        style.configure(
+            "Danger.TButton",
+            background=THEME["surface2"],
+            foreground=THEME["danger"],
+        )
+        style.map(
+            "Danger.TButton",
+            background=[("active", THEME["danger"])],
+            foreground=[("active", THEME["text"])],
+        )
 
     def _build_layout(self) -> None:
         """Monta la vista de edición como contenido principal."""

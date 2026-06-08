@@ -3,12 +3,12 @@
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk
+from tkinter import ttk, messagebox
 
 from database.db import Database
-from models.song import Song, Section, Chord
+from models.song import Song, Chord
 from models.transposer import transpose_song
-from utils.lyrics_parser import parse_lyrics
+from utils.lyrics_parser import parse_lyrics, merge_lyrics
 from ui.app import THEME
 from ui.views.song_list import SongList
 from ui.widgets.chord_grid import ChordGrid
@@ -16,9 +16,11 @@ from ui.widgets.chord_popup import ChordPopup
 
 
 def _reconstruct_lyrics(song: Song) -> str:
-    """Reconstruye el texto plano de la letra a partir del modelo."""
+    """Reconstruye el texto plano de la letra (con encabezados [Sección])."""
     lines: list[str] = []
     for section in song.sections:
+        if section.label:
+            lines.append(f"[{section.label}]")
         for line in section.lines:
             lines.append("".join(s.text for s in line.syllables).strip())
     return "\n".join(lines)
@@ -39,6 +41,7 @@ class EditView(ttk.Frame):
 
         self.song: Song | None = None
         self.transpose_offset = 0
+        self._view_mode = "edit"  # 'edit' o 'stage' (escenario inline)
 
         self._build()
 
@@ -47,18 +50,21 @@ class EditView(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        body = ttk.Frame(self, style="TFrame")
-        body.pack(fill="both", expand=True)
-
-        # Panel izquierdo de ancho fijo (240px)
-        self.song_list = SongList(
-            body, self.db, on_select=self.load_song, on_new=self._new_song
+        # PanedWindow clásico: ancho inicial 240, mínimo 180, ajustable arrastrando
+        paned = tk.PanedWindow(
+            self, orient="horizontal", sashwidth=6,
+            bg=THEME["border"], bd=0, sashrelief="flat",
         )
-        self.song_list.pack(side="left", fill="y")
+        paned.pack(fill="both", expand=True)
 
-        # Panel derecho ocupa el resto
-        right = ttk.Frame(body, style="TFrame")
-        right.pack(side="left", fill="both", expand=True)
+        self.song_list = SongList(
+            paned, self.db, on_select=self.load_song,
+            on_new=self._new_song, on_delete=self._confirm_delete,
+        )
+        paned.add(self.song_list, minsize=180, width=240, stretch="never")
+
+        right = ttk.Frame(paned, style="TFrame")
+        paned.add(right, stretch="always")
 
         self._build_metadata_bar(right)
         self._build_toolbar(right)
@@ -89,14 +95,17 @@ class EditView(ttk.Frame):
         bar.pack(fill="x", padx=10, pady=4)
 
         ttk.Button(bar, text="Guardar", command=self._autosave).pack(side="left", padx=2)
-        ttk.Button(bar, text="Vista Escenario", command=self._open_stage).pack(side="left", padx=2)
+        self._stage_btn = ttk.Button(bar, text="Vista Escenario", command=self._toggle_stage)
+        self._stage_btn.pack(side="left", padx=2)
+        ttk.Button(bar, text="⛶", width=3, command=self._open_stage).pack(side="left")
         ttk.Button(bar, text="−", width=3, command=lambda: self._transpose(-1)).pack(side="left", padx=(12, 0))
         self._offset_lbl = ttk.Label(bar, text="0", style="TLabel", width=3, anchor="center")
         self._offset_lbl.pack(side="left")
         ttk.Button(bar, text="+", width=3, command=lambda: self._transpose(1)).pack(side="left")
         ttk.Button(bar, text="Guardar en este tono", command=self._save_in_key).pack(side="left", padx=2)
-        ttk.Button(bar, text="+ Sección", command=self._insert_section).pack(side="left", padx=2)
         ttk.Button(bar, text="Editar letra", command=self._edit_lyrics).pack(side="left", padx=2)
+        ttk.Button(bar, text="Eliminar", style="Danger.TButton",
+                   command=self._delete_current).pack(side="left", padx=2)
 
     def _build_content(self, parent: tk.Misc) -> None:
         """Área central que alterna entre la grilla y el editor de letra."""
@@ -174,6 +183,7 @@ class EditView(ttk.Frame):
     def _new_song(self) -> None:
         self.song = None
         self.transpose_offset = 0
+        self._reset_to_edit_mode()
         for var in self._meta_vars.values():
             var.set("")
         self.grid_widget.set_song(None)
@@ -192,9 +202,16 @@ class EditView(ttk.Frame):
             self._set_status("No hay texto para procesar")
             return
         title = self._meta_vars["title"].get().strip() or "Sin título"
-        self.song = parse_lyrics(text, title=title)
+
+        if self.song is not None and self.song.id is not None:
+            # Editando una canción existente: misma entrada, conservar acordes
+            self.song = merge_lyrics(self.song, text)
+        else:
+            self.song = parse_lyrics(text, title=title)
+
         self._apply_metadata_to_song()
         self.transpose_offset = 0
+        self._offset_lbl.config(text="0")
         self._autosave()
         self._render_grid()
         self._show_grid()
@@ -207,6 +224,7 @@ class EditView(ttk.Frame):
         self.song = self.db.load_song(song_id)
         self.transpose_offset = 0
         self._offset_lbl.config(text="0")
+        self._reset_to_edit_mode()
         self._meta_vars["title"].set(self.song.title)
         self._meta_vars["author"].set(self.song.author or "")
         self._meta_vars["key"].set(self.song.key or "")
@@ -329,27 +347,78 @@ class EditView(ttk.Frame):
         self._set_status("Acordes guardados en el nuevo tono")
 
     # ------------------------------------------------------------------
-    # Secciones, guardado y escenario
+    # Guardado y escenario
     # ------------------------------------------------------------------
-
-    def _insert_section(self) -> None:
-        if self.song is None:
-            return
-        pos = len(self.song.sections)
-        self.song.sections.append(
-            Section(id=None, position=pos, type="verse", label="Nueva sección")
-        )
-        self._autosave()
-        self._render_grid()
 
     def _autosave(self) -> None:
         if self.song is None:
             return
         self.db.save_song(self.song)
         self.song_list.refresh()
+        if self.song.id is not None:
+            self.song_list.set_selected(self.song.id)
         self._set_status("Guardado")
 
+    # ------------------------------------------------------------------
+    # Eliminar canción (CRUD Delete)
+    # ------------------------------------------------------------------
+
+    def _delete_current(self) -> None:
+        """Elimina la canción abierta en el panel de edición."""
+        if self.song is None or self.song.id is None:
+            self._set_status("No hay canción para eliminar")
+            return
+        self._confirm_delete(self.song.id, self.song.title)
+
+    def _confirm_delete(self, song_id: int, title: str) -> None:
+        """Pide confirmación y elimina la canción de la base de datos."""
+        if not messagebox.askyesno(
+            "Eliminar canción",
+            f"¿Seguro que quieres eliminar «{title}»?\nEsta acción no se puede deshacer.",
+            icon="warning", parent=self,
+        ):
+            return
+
+        self.db.delete_song(song_id)
+
+        # Si se borró la canción abierta, limpiar el panel derecho
+        if self.song is not None and self.song.id == song_id:
+            self.song = None
+            self.transpose_offset = 0
+            self._offset_lbl.config(text="0")
+            for var in self._meta_vars.values():
+                var.set("")
+            self.grid_widget.set_song(None)
+            self._show_grid()
+
+        self.song_list.refresh()
+        self.song_list.set_selected(self.song.id if self.song else None)
+        self._set_status(f"Eliminada: {title}")
+
+    def _reset_to_edit_mode(self) -> None:
+        """Vuelve a modo edición sin renderizar (lo hará quien llame después)."""
+        self._view_mode = "edit"
+        self.grid_widget.mode = "edit"
+        self._stage_btn.config(text="Vista Escenario")
+
+    def _toggle_stage(self) -> None:
+        """Alterna el panel derecho entre edición y vista escenario (inline)."""
+        if self.song is None:
+            self._set_status("No hay canción para mostrar")
+            return
+        self._set_view_mode("edit" if self._view_mode == "stage" else "stage")
+
+    def _set_view_mode(self, mode: str) -> None:
+        """Aplica el modo de vista (edit/stage) al grid y actualiza el botón."""
+        self._view_mode = mode
+        self.grid_widget.mode = mode  # se renderiza con _render_grid
+        self._stage_btn.config(
+            text="Volver a editar" if mode == "stage" else "Vista Escenario"
+        )
+        self._render_grid()
+
     def _open_stage(self) -> None:
+        """Abre la vista escenario en pantalla completa (ícono ⛶)."""
         if self.song is None:
             return
         if self._on_open_stage is not None:
