@@ -9,9 +9,10 @@ from models.transposer import transpose_song
 from ui.app import THEME
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 
-# Velocidad de scroll automático: fracción de la canción por tick (~40 ms)
+# Velocidad de scroll automático: píxeles por segundo, independiente del largo
+# de la canción. El slider (1-10) multiplica estos píxeles por segundo.
 _SCROLL_TICK_MS = 40
-_SCROLL_SPEED_FACTOR = 0.0004
+_SCROLL_PX_PER_SPEED = 6.0  # px/s por cada unidad del slider (vel. 5 ≈ 30 px/s)
 
 
 class StageView:
@@ -24,6 +25,7 @@ class StageView:
 
         self._scrolling = False
         self._scroll_after: str | None = None
+        self._scroll_frac = 0.0  # posición acumulada (float), evita redondeo sub-pixel
 
         self.top = tk.Toplevel(parent)
         self.top.title(song.title)
@@ -166,6 +168,8 @@ class StageView:
         self._scrolling = not self._scrolling
         self._play_btn.config(text="⏸" if self._scrolling else "▶")
         if self._scrolling:
+            # Sincronizar el acumulador con la posición visible actual al arrancar.
+            self._scroll_frac = self._canvas.yview()[0]
             self._auto_tick()
         elif self._scroll_after is not None:
             self.top.after_cancel(self._scroll_after)
@@ -174,13 +178,21 @@ class StageView:
     def _auto_tick(self) -> None:
         if not self._scrolling:
             return
-        top, bottom = self._canvas.yview()
+        _, bottom = self._canvas.yview()
         if bottom >= 1.0:  # llegó al final: detener
             self._scrolling = False
             self._play_btn.config(text="▶")
             return
-        step = self._speed_var.get() * _SCROLL_SPEED_FACTOR
-        self._canvas.yview_moveto(top + step)
+        # Convertir píxeles/segundo a fracción de la canción para este tick, usando
+        # la altura total del contenido: misma velocidad visual sin importar el largo.
+        # Acumulamos en self._scroll_frac (float) para no perder los avances
+        # sub-pixel que el canvas redondearía a cero a velocidades bajas.
+        bbox = self._canvas.bbox("all")
+        total_px = (bbox[3] - bbox[1]) if bbox else 0
+        if total_px > 0:
+            px_this_tick = self._speed_var.get() * _SCROLL_PX_PER_SPEED * (_SCROLL_TICK_MS / 1000)
+            self._scroll_frac += px_this_tick / total_px
+            self._canvas.yview_moveto(self._scroll_frac)
         self._scroll_after = self.top.after(_SCROLL_TICK_MS, self._auto_tick)
 
     def _on_mousewheel(self, event: tk.Event) -> None:
