@@ -3,15 +3,15 @@
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, colorchooser
 
 from database.db import Database
-from models.song import Song, Chord
+from models.song import Song, Chord, Syllable
 from models.transposer import transpose_song
-from utils.lyrics_parser import parse_lyrics, merge_lyrics
+from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
 from ui.app import THEME
 from ui.views.song_list import SongList
-from ui.widgets.chord_grid import ChordGrid
+from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 from ui.widgets.chord_popup import ChordPopup
 
 
@@ -22,6 +22,8 @@ def _reconstruct_lyrics(song: Song) -> str:
         if section.label:
             lines.append(f"[{section.label}]")
         for line in section.lines:
+            if is_chord_line(line):
+                continue  # las líneas de acordes no son texto editable
             lines.append("".join(s.text for s in line.syllables).strip())
     return "\n".join(lines)
 
@@ -42,6 +44,7 @@ class EditView(ttk.Frame):
         self.song: Song | None = None
         self.transpose_offset = 0
         self._view_mode = "edit"  # 'edit' o 'stage' (escenario inline)
+        self._stage_lyric_size = STAGE_LYRIC_SIZE_DEFAULT
 
         self._build()
 
@@ -98,6 +101,17 @@ class EditView(ttk.Frame):
         self._stage_btn = ttk.Button(bar, text="Vista Escenario", command=self._toggle_stage)
         self._stage_btn.pack(side="left", padx=2)
         ttk.Button(bar, text="⛶", width=3, command=self._open_stage).pack(side="left")
+        ttk.Button(bar, text="A−", width=3,
+                   command=lambda: self._change_stage_font(-2)).pack(side="left", padx=(6, 0))
+        ttk.Button(bar, text="A+", width=3,
+                   command=lambda: self._change_stage_font(2)).pack(side="left")
+        # Selector de color de acordes (muestra el color actual)
+        self._color_swatch = tk.Label(
+            bar, text=" ", bg=THEME["chord"], width=2, cursor="hand2",
+            relief="raised", borderwidth=1,
+        )
+        self._color_swatch.pack(side="left", padx=(6, 0))
+        self._color_swatch.bind("<Button-1>", lambda _e: self._pick_chord_color())
         ttk.Button(bar, text="−", width=3, command=lambda: self._transpose(-1)).pack(side="left", padx=(12, 0))
         self._offset_lbl = ttk.Label(bar, text="0", style="TLabel", width=3, anchor="center")
         self._offset_lbl.pack(side="left")
@@ -128,8 +142,9 @@ class EditView(ttk.Frame):
         self.grid_widget = ChordGrid(
             self._inner, None, mode="edit",
             on_chord_click=self._on_chord_click,
-            on_split=self._split_syllable,
-            on_merge=self._merge_syllable,
+            on_add_left=lambda s: self._add_slot(s, before=True),
+            on_add_right=lambda s: self._add_slot(s, before=False),
+            on_remove=self._remove_slot,
         )
         self.grid_widget.pack(fill="both", expand=True, anchor="nw")
 
@@ -314,14 +329,51 @@ class EditView(ttk.Frame):
                 self._open_popup(nxt, widget)
 
     # ------------------------------------------------------------------
-    # Dividir / unir sílabas
+    # Casillas de acorde manuales
     # ------------------------------------------------------------------
 
-    def _split_syllable(self, syllable) -> None:
-        self._set_status("Dividir sílaba: pendiente de implementar")
+    def _add_slot(self, syllable: Syllable, before: bool) -> None:
+        """Inserta una casilla de acorde vacía a la izquierda o derecha de la sílaba."""
+        if self.song is None:
+            return
+        if self.transpose_offset != 0:
+            self._set_status("Vuelve al tono original (0) para editar casillas")
+            return
 
-    def _merge_syllable(self, syllable) -> None:
-        self._set_status("Unir sílaba: pendiente de implementar")
+        for section in self.song.sections:
+            for line in section.lines:
+                for i, s in enumerate(line.syllables):
+                    if s is syllable:  # identidad, no igualdad (hay slots iguales)
+                        insert_at = i if before else i + 1
+                        line.syllables.insert(
+                            insert_at, Syllable(id=None, position=0, text="")
+                        )
+                        for pos, syl in enumerate(line.syllables):
+                            syl.position = pos
+                        self._autosave()
+                        self._render_grid()
+                        return
+
+    def _remove_slot(self, syllable: Syllable) -> None:
+        """Elimina una casilla de acorde (solo si no está asignada a una sílaba)."""
+        if self.song is None:
+            return
+        if self.transpose_offset != 0:
+            self._set_status("Vuelve al tono original (0) para editar casillas")
+            return
+        if syllable.text.strip() != "":
+            return  # seguridad: nunca borrar una sílaba con texto
+
+        for section in self.song.sections:
+            for line in section.lines:
+                for i, s in enumerate(line.syllables):
+                    if s is syllable:
+                        del line.syllables[i]
+                        for pos, syl in enumerate(line.syllables):
+                            syl.position = pos
+                        self._autosave()
+                        self._render_grid()
+                        return
 
     # ------------------------------------------------------------------
     # Transposición
@@ -407,6 +459,28 @@ class EditView(ttk.Frame):
             self._set_status("No hay canción para mostrar")
             return
         self._set_view_mode("edit" if self._view_mode == "stage" else "stage")
+
+    def _change_stage_font(self, delta: int) -> None:
+        """Ajusta el tamaño de fuente de la vista escenario (inline y pantalla completa)."""
+        self._stage_lyric_size = max(10, self._stage_lyric_size + delta)
+        self.grid_widget.set_stage_font_size(self._stage_lyric_size)
+        if self._view_mode == "stage":
+            self._set_status(f"Tamaño de fuente: {self._stage_lyric_size}")
+
+    def _pick_chord_color(self) -> None:
+        """Abre el selector de color para los acordes (global y persistente)."""
+        from ui.preferences import save_preference
+
+        chosen = colorchooser.askcolor(
+            color=THEME["chord"], title="Color de acordes", parent=self
+        )
+        if not chosen or not chosen[1]:
+            return  # cancelado
+        THEME["chord"] = chosen[1]
+        save_preference("chord_color", chosen[1])
+        self._color_swatch.config(bg=chosen[1])
+        self._render_grid()  # actualiza los acordes en pantalla
+        self.song_list.set_selected(self.song.id if self.song else None)
 
     def _set_view_mode(self, mode: str) -> None:
         """Aplica el modo de vista (edit/stage) al grid y actualiza el botón."""

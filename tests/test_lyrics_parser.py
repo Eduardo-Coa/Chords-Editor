@@ -4,47 +4,82 @@ from __future__ import annotations
 
 from models.song import Chord, Song
 from utils.lyrics_parser import (
-    parse_lyrics, merge_lyrics, TRAILING_NOTE_SLOTS,
+    parse_lyrics, merge_lyrics, is_chord_line, CHORD_LINE_SLOTS,
     is_section_header, parse_section_header,
 )
 
 
-def _first_chord_of_line(song, sec=0, line=0):
-    """Devuelve (texto_silaba, acorde) de la primera sílaba con acorde de una línea."""
-    for s in song.sections[sec].lines[line].syllables:
+def _lyric_lines(song, sec=0):
+    """Líneas de letra de una sección (omite la línea de acordes inicial)."""
+    return [l for l in song.sections[sec].lines if not is_chord_line(l)]
+
+
+def _chord_line(song, sec=0):
+    """Devuelve la línea de acordes de una sección."""
+    return next(l for l in song.sections[sec].lines if is_chord_line(l))
+
+
+def _first_chord(line):
+    """(texto_silaba, acorde) de la primera sílaba con acorde de una línea."""
+    for s in line.syllables:
         if s.chord:
             return s.text.strip(), s.chord.value
     return None
 
 
-def test_una_linea_con_ranuras():
+# ---------------------------------------------------------------------------
+# Parseo básico
+# ---------------------------------------------------------------------------
+
+def test_sin_casillas_automaticas_en_letra():
+    # Las casillas en las líneas de letra son manuales: el parser no agrega ninguna
     song = parse_lyrics("Cristo vive", title="Test")
     assert song.title == "Test"
-    line = song.sections[0].lines[0]
-    slots = [s for s in line.syllables if s.text == ""]
-    assert len(slots) == TRAILING_NOTE_SLOTS
+    line = _lyric_lines(song)[0]
+    assert [s for s in line.syllables if s.text == ""] == []
 
 
 def test_lineas_vacias_se_conservan():
     song = parse_lyrics("Linea uno\n\nLinea dos")
-    lines = song.sections[0].lines
-    assert len(lines) == 3
-    # La línea del medio está vacía (separador), sin ranuras
-    assert lines[1].syllables == []
+    lyric = _lyric_lines(song)
+    assert len(lyric) == 3
+    assert lyric[1].syllables == []  # separador en medio
 
 
 def test_silabas_reconstruyen_texto():
     song = parse_lyrics("gloria a Dios")
-    line = song.sections[0].lines[0]
+    line = _lyric_lines(song)[0]
     texto = "".join(s.text for s in line.syllables).strip()
     assert texto == "gloria a Dios"
 
+
+# ---------------------------------------------------------------------------
+# Línea de acordes por sección
+# ---------------------------------------------------------------------------
+
+def test_cada_seccion_tiene_linea_de_acordes():
+    song = parse_lyrics("[Estrofa 1]\nGracias te doy\n[Coro]\nJesús te ama")
+    for section in song.sections:
+        chord_line = section.lines[0]
+        assert is_chord_line(chord_line)
+        assert len(chord_line.syllables) == CHORD_LINE_SLOTS
+
+
+def test_linea_de_acordes_va_primero():
+    song = parse_lyrics("Gracias te doy")
+    assert is_chord_line(song.sections[0].lines[0])
+    assert not is_chord_line(song.sections[0].lines[1])
+
+
+# ---------------------------------------------------------------------------
+# Secciones con corchetes
+# ---------------------------------------------------------------------------
 
 def test_detecta_encabezado_seccion():
     assert is_section_header("[Coro]")
     assert is_section_header("  [Estrofa 1]  ")
     assert not is_section_header("Cristo vive")
-    assert not is_section_header("vive [en mi]")  # corchete a mitad, no es encabezado
+    assert not is_section_header("vive [en mi]")
 
 
 def test_tipo_seccion_por_palabra_clave():
@@ -52,19 +87,17 @@ def test_tipo_seccion_por_palabra_clave():
     assert parse_section_header("[Estrofa 1]") == ("Estrofa 1", "verse")
     assert parse_section_header("[Puente]") == ("Puente", "bridge")
     assert parse_section_header("[Intro]") == ("Intro", "intro")
-    assert parse_section_header("[Instrumental]") == ("Instrumental", "verse")  # libre
+    assert parse_section_header("[Instrumental]") == ("Instrumental", "verse")
 
 
 def test_parse_con_secciones():
-    text = "[Estrofa 1]\nGracias te doy\n[Coro]\nJesús te ama"
-    song = parse_lyrics(text)
+    song = parse_lyrics("[Estrofa 1]\nGracias te doy\n[Coro]\nJesús te ama")
     assert len(song.sections) == 2
     assert song.sections[0].label == "Estrofa 1"
     assert song.sections[0].type == "verse"
     assert song.sections[1].label == "Coro"
     assert song.sections[1].type == "chorus"
-    # Cada sección tiene su línea de letra
-    assert song.sections[0].lines[0].syllables[0].text.startswith("Gra")
+    assert _lyric_lines(song, 0)[0].syllables[0].text.startswith("Gra")
 
 
 def test_letra_antes_de_encabezado_va_en_seccion_por_defecto():
@@ -78,38 +111,40 @@ def test_letra_antes_de_encabezado_va_en_seccion_por_defecto():
 # ---------------------------------------------------------------------------
 
 def _song_con_acordes() -> Song:
-    """Canción de prueba con id y un acorde en la primera línea."""
+    """Canción con id, acordes en las líneas de letra y en la línea de acordes."""
     song = parse_lyrics("Gracias te doy\nque pronto volverás")
     song.id = 42
-    # Poner un acorde en la primera sílaba de cada línea
-    song.sections[0].lines[0].syllables[0].chord = Chord(id=None, value="D")
-    song.sections[0].lines[1].syllables[0].chord = Chord(id=None, value="G")
+    lyric = _lyric_lines(song)
+    lyric[0].syllables[0].chord = Chord(id=None, value="D")
+    lyric[1].syllables[0].chord = Chord(id=None, value="G")
+    # Acorde en la línea de acordes (intro de la sección)
+    _chord_line(song).syllables[0].chord = Chord(id=None, value="A")
     return song
 
 
 def test_merge_conserva_id():
-    song = _song_con_acordes()
-    merged = merge_lyrics(song, "Gracias te doy\nque pronto volverás")
+    merged = merge_lyrics(_song_con_acordes(), "Gracias te doy\nque pronto volverás")
     assert merged.id == 42
 
 
 def test_merge_agregar_linea_conserva_acordes_previos():
-    song = _song_con_acordes()
     nuevo = "Gracias te doy\nque pronto volverás\nuna línea nueva"
-    merged = merge_lyrics(song, nuevo)
-
-    # Las dos líneas originales conservan sus acordes
-    assert _first_chord_of_line(merged, 0, 0) == ("Gra", "D")
-    assert _first_chord_of_line(merged, 0, 1) == ("que", "G")
-    # La línea nueva no tiene acordes
-    assert _first_chord_of_line(merged, 0, 2) is None
+    merged = merge_lyrics(_song_con_acordes(), nuevo)
+    lyric = _lyric_lines(merged)
+    assert _first_chord(lyric[0]) == ("Gra", "D")
+    assert _first_chord(lyric[1]) == ("que", "G")
+    assert _first_chord(lyric[2]) is None  # línea nueva sin acordes
 
 
 def test_merge_linea_editada_pierde_sus_acordes_pero_otras_no():
-    song = _song_con_acordes()
-    # Se modifica la segunda línea; la primera queda igual
     nuevo = "Gracias te doy\nque muy pronto volverás"
-    merged = merge_lyrics(song, nuevo)
+    merged = merge_lyrics(_song_con_acordes(), nuevo)
+    lyric = _lyric_lines(merged)
+    assert _first_chord(lyric[0]) == ("Gra", "D")  # intacta
+    assert _first_chord(lyric[1]) is None          # editada, sin acordes
 
-    assert _first_chord_of_line(merged, 0, 0) == ("Gra", "D")  # intacta
-    assert _first_chord_of_line(merged, 0, 1) is None          # editada, sin acordes
+
+def test_merge_conserva_linea_de_acordes_por_seccion():
+    # Al editar la letra, la línea de acordes (intro) conserva su acorde
+    merged = merge_lyrics(_song_con_acordes(), "Gracias te doy\nque pronto volverás")
+    assert _first_chord(_chord_line(merged)) == ("", "A")

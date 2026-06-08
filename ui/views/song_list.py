@@ -11,6 +11,17 @@ from ui.app import THEME
 # Ancho inicial del panel (ajustable desde el PanedWindow del edit_view)
 PANEL_WIDTH = 240
 
+# Filtros del panel, dirigidos por datos. Para agregar un filtro nuevo, añade
+# una entrada aquí (y la columna correspondiente en Database._FILTER_COLUMNS).
+FILTERS = [
+    {"field": "author", "label": "Autor", "editable": True},
+    # {"field": "rhythm", "label": "Ritmo"},
+    # {"field": "key",    "label": "Tono"},
+]
+
+# Texto del desplegable que significa "sin filtro"
+FILTER_ALL = "Todos"
+
 
 class SongList(ttk.Frame):
     """Lista de canciones con buscador en vivo, botón nueva y eliminar en hover."""
@@ -31,6 +42,9 @@ class SongList(ttk.Frame):
 
         self._selected_id: int | None = None
         self._row_labels: dict[int, tk.Label] = {}  # song_id -> label del título
+        self._filter_vars: dict[str, tk.StringVar] = {}
+        self._filter_combos: dict[str, ttk.Combobox] = {}
+        self._refreshing = False  # evita recursión al recargar opciones
 
         self._build()
         self.refresh()
@@ -50,9 +64,37 @@ class SongList(ttk.Frame):
         search_entry.pack(fill="x", padx=10, pady=(10, 6), ipady=4)
         self._add_placeholder(search_entry, "Buscar...")
 
+        # Filtros (desplegables) dirigidos por FILTERS
+        for spec in FILTERS:
+            field, label = spec["field"], spec["label"]
+            frame = tk.Frame(self, bg=THEME["surface"])
+            frame.pack(fill="x", padx=10, pady=(0, 4))
+            tk.Label(
+                frame, text=label, bg=THEME["surface"], fg=THEME["text_muted"],
+                font=THEME["font_ui"], width=6, anchor="w",
+            ).pack(side="left")
+            var = tk.StringVar(value=FILTER_ALL)
+            combo = ttk.Combobox(
+                frame, textvariable=var, state="readonly", font=THEME["font_ui"],
+            )
+            combo.pack(side="left", fill="x", expand=True)
+            var.trace_add("write", lambda *_: self.refresh())
+            self._filter_vars[field] = var
+            self._filter_combos[field] = combo
+
+            # Botón de edición (✎) para filtros editables (ej. autores)
+            if spec.get("editable"):
+                tk.Label(
+                    frame, text="✎", bg=THEME["surface"], fg=THEME["accent"],
+                    cursor="hand2", font=THEME["font_ui"],
+                ).pack(side="left", padx=(4, 0))
+                frame.winfo_children()[-1].bind(
+                    "<Button-1>", lambda _e, f=field: self._open_field_editor(f)
+                )
+
         ttk.Button(
             self, text="+  Nueva canción", style="Accent.TButton", command=self._on_new,
-        ).pack(fill="x", padx=10, pady=(0, 8))
+        ).pack(fill="x", padx=10, pady=(6, 8))
 
         # Área de lista con scroll (Canvas + frame interior)
         container = tk.Frame(self, bg=THEME["surface"])
@@ -108,17 +150,45 @@ class SongList(ttk.Frame):
     # ------------------------------------------------------------------
 
     def refresh(self) -> None:
-        """Recarga la lista desde la base de datos aplicando el filtro actual."""
-        query = self._search_var.get().strip()
-        if query == "Buscar...":
-            query = ""
+        """Recarga la lista aplicando búsqueda y filtros; actualiza los desplegables."""
+        if self._refreshing:
+            return
+        self._refreshing = True
+        try:
+            self._reload_filter_options()
 
-        for child in self._inner.winfo_children():
-            child.destroy()
-        self._row_labels.clear()
+            query = self._search_var.get().strip()
+            if query == "Buscar...":
+                query = ""
 
-        for song in self.db.list_songs(query):
-            self._make_row(song["id"], song["title"], song.get("key") or "")
+            filters = {
+                field: var.get()
+                for field, var in self._filter_vars.items()
+                if var.get() and var.get() != FILTER_ALL
+            }
+
+            for child in self._inner.winfo_children():
+                child.destroy()
+            self._row_labels.clear()
+
+            for song in self.db.list_songs(query, filters):
+                self._make_row(song["id"], song["title"], song.get("key") or "")
+        finally:
+            self._refreshing = False
+
+    def _open_field_editor(self, field: str) -> None:
+        """Abre el editor del campo (por ahora solo autores)."""
+        if field == "author":
+            from ui.views.author_editor import AuthorEditor
+            AuthorEditor(self, self.db, on_changed=self.refresh)
+
+    def _reload_filter_options(self) -> None:
+        """Repuebla los desplegables con los valores existentes (preserva selección)."""
+        for field, combo in self._filter_combos.items():
+            options = [FILTER_ALL] + self.db.distinct_values(field)
+            combo["values"] = options
+            if self._filter_vars[field].get() not in options:
+                self._filter_vars[field].set(FILTER_ALL)
 
     def _make_row(self, song_id: int, title: str, key: str) -> None:
         """Crea una fila clicable con botón de eliminar que aparece en hover."""

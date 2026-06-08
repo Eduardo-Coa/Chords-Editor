@@ -9,9 +9,9 @@ from utils.syllabifier import syllabify
 
 PUNCTUATION = set(",.;:!¡?¿…\"'()-—«»")
 
-# Ranuras vacías al final de cada línea para acordes de paso/enlace
-# (notas entre líneas que no van sobre ninguna sílaba, ej: (D7) antes de G).
-TRAILING_NOTE_SLOTS = 4
+# Casillas que trae por defecto la línea de acordes al inicio de cada sección
+# (para intros, interludios y la entrada de cada estrofa).
+CHORD_LINE_SLOTS = 4
 
 # Encabezado de sección: una línea que es solo [texto], ej. [Coro], [Estrofa 1]
 SECTION_RE = re.compile(r"^\[(.+)\]$")
@@ -76,6 +76,19 @@ def _split_word(word: str) -> list[str]:
     return parts
 
 
+def is_chord_line(line: Line) -> bool:
+    """True si la línea es de solo acordes (todas sus casillas vacías, sin letra)."""
+    return bool(line.syllables) and all(s.text.strip() == "" for s in line.syllables)
+
+
+def _make_chord_line(position: int) -> Line:
+    """Crea una línea de acordes con CHORD_LINE_SLOTS casillas vacías."""
+    line = Line(id=None, position=position)
+    for i in range(CHORD_LINE_SLOTS):
+        line.syllables.append(Syllable(id=None, position=i, text=""))
+    return line
+
+
 def _parse_line(text: str, position: int) -> Line:
     """Convierte una línea de texto en un Line con sus sílabas."""
     line = Line(id=None, position=position)
@@ -93,11 +106,6 @@ def _parse_line(text: str, position: int) -> Line:
             line.syllables.append(Syllable(id=None, position=pos, text=part))
             pos += 1
 
-    # Ranuras de acordes de paso al final de la línea (solo si hay contenido)
-    if line.syllables:
-        for _ in range(TRAILING_NOTE_SLOTS):
-            line.syllables.append(Syllable(id=None, position=pos, text=""))
-            pos += 1
     return line
 
 
@@ -111,32 +119,36 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
     """
     song = Song(id=None, title=title)
     current: Section | None = None
-    section_pos = 0
-    line_pos = 0
+    counters = {"section": 0, "line": 0}
+
+    def start_section(label: str | None, section_type: str) -> Section:
+        section = Section(
+            id=None, position=counters["section"], type=section_type, label=label
+        )
+        # Cada sección arranca con una línea de acordes (intro/interludio/entrada)
+        section.lines.append(_make_chord_line(0))
+        song.sections.append(section)
+        counters["section"] += 1
+        counters["line"] = 1  # las líneas de letra van después de la de acordes
+        return section
 
     for raw_line in text.split("\n"):
         stripped = raw_line.strip()
 
         if is_section_header(stripped):
             label, section_type = parse_section_header(stripped)
-            current = Section(id=None, position=section_pos, type=section_type, label=label)
-            song.sections.append(current)
-            section_pos += 1
-            line_pos = 0
+            current = start_section(label, section_type)
             continue
 
         if current is None:
             # Letra antes de cualquier encabezado: sección por defecto sin etiqueta
-            current = Section(id=None, position=section_pos, type="verse", label=None)
-            song.sections.append(current)
-            section_pos += 1
-            line_pos = 0
+            current = start_section(None, "verse")
 
-        current.lines.append(_parse_line(stripped, line_pos))
-        line_pos += 1
+        current.lines.append(_parse_line(stripped, counters["line"]))
+        counters["line"] += 1
 
     if not song.sections:
-        song.sections.append(Section(id=None, position=0, type="verse", label=None))
+        start_section(None, "verse")
 
     return song
 
@@ -177,5 +189,19 @@ def merge_lyrics(existing: Song, new_text: str) -> Song:
             if text and old_by_text.get(text):
                 old_line = old_by_text[text].popleft()
                 line.syllables = old_line.syllables  # conserva acordes
+
+    # Las líneas de acordes (sin texto) se emparejan por sección, no por texto
+    for idx, new_section in enumerate(merged.sections):
+        if idx >= len(existing.sections):
+            break
+        old_chord_line = next(
+            (l for l in existing.sections[idx].lines if is_chord_line(l)), None
+        )
+        if old_chord_line is None:
+            continue
+        for i, line in enumerate(new_section.lines):
+            if is_chord_line(line):
+                new_section.lines[i] = old_chord_line  # conserva sus acordes
+                break
 
     return merged

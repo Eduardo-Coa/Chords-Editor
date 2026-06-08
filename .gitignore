@@ -7,3 +7,6 @@ CLAUDE.md
 .vscode
 
 pyrefly.toml
+
+# Preferencias personales de la app (color de acordes, etc.)
+preferences.json

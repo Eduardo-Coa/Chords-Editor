@@ -10,6 +10,10 @@ from ui.app import THEME
 # Sílabas que son solo puntuación: no llevan espacio de acorde encima
 PUNCTUATION = set(",.;:!¡?¿…")
 
+# Tamaños por defecto de fuente en modo escenario (un poco más pequeños que THEME)
+STAGE_LYRIC_SIZE_DEFAULT = 18
+STAGE_CHORD_SIZE_DEFAULT = 14
+
 # Etiquetas legibles para cada tipo de sección
 SECTION_LABELS = {
     "verse": "Estrofa",
@@ -40,16 +44,22 @@ class ChordGrid(tk.Frame):
         song: Song | None = None,
         mode: str = "edit",
         on_chord_click: Callable[[Syllable, tk.Widget], None] | None = None,
-        on_split: Callable[[Syllable], None] | None = None,
-        on_merge: Callable[[Syllable], None] | None = None,
+        on_add_left: Callable[[Syllable], None] | None = None,
+        on_add_right: Callable[[Syllable], None] | None = None,
+        on_remove: Callable[[Syllable], None] | None = None,
     ) -> None:
         bg = THEME["bg"]
         super().__init__(parent, bg=bg)
         self.song = song
         self.mode = mode
         self._on_chord_click = on_chord_click
-        self._on_split = on_split
-        self._on_merge = on_merge
+        self._on_add_left = on_add_left
+        self._on_add_right = on_add_right
+        self._on_remove = on_remove
+
+        # Tamaños de fuente del modo escenario (ajustables en vivo)
+        self.stage_lyric_size = STAGE_LYRIC_SIZE_DEFAULT
+        self.stage_chord_size = STAGE_CHORD_SIZE_DEFAULT
 
         # Mapas reconstruidos en cada render() para anclar el popup y navegar
         self._chord_widgets: dict[int, tk.Widget] = {}
@@ -70,6 +80,13 @@ class ChordGrid(tk.Frame):
         """Cambia entre 'edit' y 'stage' y vuelve a renderizar."""
         self.mode = mode
         self.render()
+
+    def set_stage_font_size(self, lyric_size: int) -> None:
+        """Ajusta el tamaño de fuente del modo escenario (acorde escala con la letra)."""
+        self.stage_lyric_size = max(10, lyric_size)
+        self.stage_chord_size = max(8, round(lyric_size * 0.78))
+        if self.mode == "stage":
+            self.render()
 
     def render(self) -> None:
         """Reconstruye toda la grilla desde el modelo actual."""
@@ -123,10 +140,29 @@ class ChordGrid(tk.Frame):
             tk.Frame(row, bg=THEME["bg"], height=12).pack()
             return
 
-        for syllable in line.syllables:
-            self._render_syllable(row, syllable)
+        # Línea de solo acordes (intro/interludio/entrada de estrofa)
+        is_chord_line = all(_is_slot(s.text) for s in line.syllables)
 
-    def _render_syllable(self, parent: tk.Frame, syllable: Syllable) -> None:
+        # En escenario, una línea de acordes sin ningún acorde no se muestra
+        if self.mode == "stage" and is_chord_line and not any(s.chord for s in line.syllables):
+            row.destroy()
+            return
+
+        # Índice de la última sílaba con texto real: una ranura es "interior"
+        # si hay texto después de ella (entre sílabas/palabras)
+        last_text_index = -1
+        for i, syl in enumerate(line.syllables):
+            if not _is_slot(syl.text):
+                last_text_index = i
+
+        for i, syllable in enumerate(line.syllables):
+            # En una línea de acordes, cada casilla con acorde lleva guión en escenario
+            interior_slot = _is_slot(syllable.text) and (i < last_text_index or is_chord_line)
+            self._render_syllable(row, syllable, interior_slot)
+
+    def _render_syllable(
+        self, parent: tk.Frame, syllable: Syllable, interior_slot: bool = False
+    ) -> None:
         """Dibuja una sílaba (acorde encima + texto debajo)."""
         is_punct = _is_punctuation(syllable.text)
         is_slot = _is_slot(syllable.text)
@@ -141,7 +177,7 @@ class ChordGrid(tk.Frame):
         cell.pack(side="left", anchor="n", padx=(3, 0) if is_slot else 0)
 
         if self.mode == "stage":
-            self._render_stage_cell(cell, syllable, chord_value, is_punct)
+            self._render_stage_cell(cell, syllable, chord_value, is_punct, interior_slot)
         else:
             self._render_edit_cell(cell, syllable, chord_value, is_punct, is_slot)
 
@@ -191,12 +227,11 @@ class ChordGrid(tk.Frame):
         )
         syl_lbl.pack(side="top", fill="x")
 
-        # Menú contextual para dividir / unir sílabas (no aplica a ranuras)
-        if not is_punct and not is_slot:
-            syl_lbl.bind(
-                "<Button-3>",
-                lambda e, s=syllable: self._show_context_menu(e, s),
-            )
+        # Menú contextual para agregar casillas a izquierda/derecha (en cualquier celda)
+        syl_lbl.bind(
+            "<Button-3>",
+            lambda e, s=syllable: self._show_context_menu(e, s),
+        )
 
     def _handle_chord_click(self, syllable: Syllable, widget: tk.Widget) -> None:
         """Notifica que se hizo clic en el espacio de acorde de una sílaba."""
@@ -204,16 +239,23 @@ class ChordGrid(tk.Frame):
             self._on_chord_click(syllable, widget)
 
     def _show_context_menu(self, event: tk.Event, syllable: Syllable) -> None:
-        """Muestra opciones de dividir/unir sílaba con clic derecho."""
+        """Muestra opciones para agregar una casilla de acorde a izquierda/derecha."""
         menu = tk.Menu(self, tearoff=0, bg=THEME["surface2"], fg=THEME["text"])
         menu.add_command(
-            label="÷  Dividir sílaba",
-            command=lambda: self._on_split(syllable) if self._on_split else None,
+            label="◧  Agregar casilla a la izquierda",
+            command=lambda: self._on_add_left(syllable) if self._on_add_left else None,
         )
         menu.add_command(
-            label="+  Unir con siguiente",
-            command=lambda: self._on_merge(syllable) if self._on_merge else None,
+            label="◨  Agregar casilla a la derecha",
+            command=lambda: self._on_add_right(syllable) if self._on_add_right else None,
         )
+        # Eliminar solo aplica a casillas (no a sílabas con texto)
+        if _is_slot(syllable.text):
+            menu.add_separator()
+            menu.add_command(
+                label="✕  Eliminar casilla",
+                command=lambda: self._on_remove(syllable) if self._on_remove else None,
+            )
         menu.tk_popup(event.x_root, event.y_root)
 
     # ------------------------------------------------------------------
@@ -221,16 +263,25 @@ class ChordGrid(tk.Frame):
     # ------------------------------------------------------------------
 
     def _render_stage_cell(
-        self, cell: tk.Frame, syllable: Syllable, chord_value: str, is_punct: bool
+        self,
+        cell: tk.Frame,
+        syllable: Syllable,
+        chord_value: str,
+        is_punct: bool,
+        interior_slot: bool = False,
     ) -> None:
         """Celda de escenario: acorde en color encima, sílaba grande debajo."""
+        family = THEME["font_stage"][0]
+        chord_font = (family, self.stage_chord_size, "bold")
+        lyric_font = (family, self.stage_lyric_size)
+
         if chord_value and not is_punct:
             tk.Label(
                 cell,
                 text=chord_value,
                 bg=THEME["bg"],
                 fg=THEME["chord"],
-                font=THEME["font_chord_stage"] + ("bold",),
+                font=chord_font,
                 anchor="w",
             ).pack(side="top", anchor="w")
         else:
@@ -239,14 +290,17 @@ class ChordGrid(tk.Frame):
                 cell,
                 text=" ",
                 bg=THEME["bg"],
-                font=THEME["font_chord_stage"],
+                font=chord_font,
             ).pack(side="top", anchor="w")
 
+        # Una ranura interior con acorde se muestra como guión, para no pegar
+        # las palabras y dar apoyo visual al acorde (ej. "coro--nad").
+        text = "-" if interior_slot else syllable.text
         tk.Label(
             cell,
-            text=syllable.text,
+            text=text,
             bg=THEME["bg"],
             fg=THEME["text"],
-            font=THEME["font_stage"],
+            font=lyric_font,
             anchor="w",
         ).pack(side="top", anchor="w")

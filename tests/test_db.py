@@ -58,6 +58,73 @@ def test_delete_song(db):
     assert db.list_songs() == []
 
 
+def _song(title, author=None, key=None):
+    return Song(id=None, title=title, author=author, key=key)
+
+
+def test_filter_by_author(db):
+    db.save_song(_song("Sublime Gracia", author="Himnario Adventista"))
+    db.save_song(_song("Cuán Grande", author="Himnario Adventista"))
+    db.save_song(_song("Otra", author="Otro Autor"))
+
+    result = db.list_songs(filters={"author": "Himnario Adventista"})
+    assert len(result) == 2
+    titles = {r["title"] for r in result}
+    assert titles == {"Sublime Gracia", "Cuán Grande"}
+
+
+def test_filter_combines_with_search(db):
+    db.save_song(_song("Sublime Gracia", author="Himnario Adventista"))
+    db.save_song(_song("Cuán Grande", author="Himnario Adventista"))
+
+    result = db.list_songs(query="sublime", filters={"author": "Himnario Adventista"})
+    assert len(result) == 1
+    assert result[0]["title"] == "Sublime Gracia"
+
+
+def test_distinct_values_authors(db):
+    db.save_song(_song("A", author="Autor Uno"))
+    db.save_song(_song("B", author="Autor Dos"))
+    db.save_song(_song("C", author="Autor Uno"))
+    db.save_song(_song("D", author=None))  # sin autor: no aparece
+
+    assert db.distinct_values("author") == ["Autor Dos", "Autor Uno"]
+
+
+def test_distinct_values_campo_invalido(db):
+    import pytest
+    with pytest.raises(ValueError):
+        db.distinct_values("title")  # no está en _FILTER_COLUMNS
+
+
+def test_rename_author_propaga_a_todas(db):
+    db.save_song(_song("A", author="Hinnario Aventista"))
+    db.save_song(_song("B", author="Hinnario Aventista"))
+    db.save_song(_song("C", author="Otro"))
+
+    db.rename_author("Hinnario Aventista", "Himnario Adventista")
+
+    assert db.distinct_values("author") == ["Himnario Adventista", "Otro"]
+    assert len(db.list_songs(filters={"author": "Himnario Adventista"})) == 2
+
+
+def test_rename_author_fusiona(db):
+    db.save_song(_song("A", author="Himnario Adventista"))
+    db.save_song(_song("B", author="Hinnario Aventista"))  # errata
+
+    db.rename_author("Hinnario Aventista", "Himnario Adventista")
+
+    # Quedan fusionados bajo un solo autor
+    assert db.distinct_values("author") == ["Himnario Adventista"]
+    assert len(db.list_songs(filters={"author": "Himnario Adventista"})) == 2
+
+
+def test_autor_se_normaliza_con_trim(db):
+    sid = db.save_song(_song("A", author="  Himnario Adventista  "))
+    loaded = db.load_song(sid)
+    assert loaded.author == "Himnario Adventista"
+
+
 def test_update_existing_song(db):
     song = _sample_song()
     sid = db.save_song(song)

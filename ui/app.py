@@ -42,6 +42,16 @@ THEME = {
 }
 
 
+def _apply_preferences() -> None:
+    """Aplica las preferencias guardadas (ej. color de acordes) al THEME."""
+    from ui.preferences import load_preferences
+
+    prefs = load_preferences()
+    chord_color = prefs.get("chord_color")
+    if chord_color:
+        THEME["chord"] = chord_color
+
+
 def _apply_platform_fonts() -> None:
     """Ajusta las fuentes del THEME según el sistema operativo."""
     if sys.platform == "darwin":  # macOS
@@ -67,6 +77,7 @@ class App:
         self.db = db
 
         _apply_platform_fonts()
+        _apply_preferences()
         self._configure_root()
         self._configure_styles()
         self._build_layout()

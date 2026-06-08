@@ -134,6 +134,10 @@ class Database:
         Inserta o actualiza una canción completa (incluyendo secciones, líneas,
         sílabas y acordes). Devuelve el id asignado.
         """
+        # Normalización: quitar espacios sobrantes del autor
+        if song.author is not None:
+            song.author = song.author.strip() or None
+
         conn = self._connect()
         try:
             with conn.cursor() as cur:
@@ -266,23 +270,79 @@ class Database:
             lines.append(line)
         return lines
 
-    def list_songs(self, query: str = "") -> list[dict]:
+    # Campos por los que se puede filtrar. Whitelist de nombre lógico -> columna
+    # SQL real (evita inyección). Para agregar un filtro nuevo, basta una línea.
+    _FILTER_COLUMNS = {
+        "author": "author",
+        "rhythm": "rhythm",
+        "key": "`key`",
+    }
+
+    def list_songs(
+        self, query: str = "", filters: dict[str, str] | None = None
+    ) -> list[dict]:
         """
         Devuelve lista de canciones como dicts con id, title, key.
-        Si se pasa query, filtra por título o autor (búsqueda parcial).
+
+        ``query`` filtra por título o autor (búsqueda parcial). ``filters`` es un
+        dict {campo: valor} para filtros exactos (ej. {"author": "..."}); solo se
+        aceptan los campos de ``_FILTER_COLUMNS``. Todos los criterios se combinan
+        con AND.
         """
+        where: list[str] = []
+        params: list[str] = []
+
+        if query:
+            pattern = f"%{query}%"
+            where.append("(title LIKE %s OR author LIKE %s)")
+            params.extend([pattern, pattern])
+
+        for field, value in (filters or {}).items():
+            column = self._FILTER_COLUMNS.get(field)
+            if column and value:
+                where.append(f"{column} = %s")
+                params.append(value)
+
+        sql = "SELECT id, title, `key` FROM songs"
+        if where:
+            sql += " WHERE " + " AND ".join(where)
+        sql += " ORDER BY title"
+
         conn = self._connect()
         with conn.cursor(dictionary=True) as cur:
-            if query:
-                pattern = f"%{query}%"
-                cur.execute(
-                    "SELECT id, title, `key` FROM songs "
-                    "WHERE title LIKE %s OR author LIKE %s ORDER BY title",
-                    (pattern, pattern),
-                )
-            else:
-                cur.execute("SELECT id, title, `key` FROM songs ORDER BY title")
+            cur.execute(sql, params)
             return cur.fetchall()  # type: ignore[return-value]
+
+    def distinct_values(self, field: str) -> list[str]:
+        """Valores distintos no vacíos de un campo filtrable (para los desplegables)."""
+        column = self._FILTER_COLUMNS.get(field)
+        if column is None:
+            raise ValueError(f"Campo no filtrable: {field}")
+        conn = self._connect()
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT DISTINCT {column} FROM songs "
+                f"WHERE {column} IS NOT NULL AND {column} <> '' ORDER BY {column}"
+            )
+            return [row[0] for row in cur.fetchall()]
+
+    def rename_author(self, old: str, new: str) -> None:
+        """
+        Renombra un autor en todas sus canciones. Si ``new`` coincide con un autor
+        existente, ambos quedan fusionados. Si ``new`` queda vacío, las canciones
+        quedan sin autor (NULL).
+        """
+        new_value = new.strip() or None
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE songs SET author=%s WHERE author=%s", (new_value, old)
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
 
     def delete_song(self, song_id: int) -> None:
         """Elimina una canción y todos sus datos relacionados."""
