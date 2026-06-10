@@ -8,5 +8,9 @@ CLAUDE.md
 
 pyrefly.toml
 
+# Archivos generados de Python
+__pycache__/
+*.pyc
+
 # Preferencias personales de la app (color de acordes, etc.)
 preferences.json
