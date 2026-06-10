@@ -8,6 +8,7 @@ from tkinter import ttk, messagebox, colorchooser
 from database.db import Database
 from models.song import Song, Chord, Syllable
 from models.transposer import transpose_song
+from models.key_chords import chords_for_key
 from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
 from ui.app import THEME
 from ui.views.song_list import SongList
@@ -294,11 +295,20 @@ class EditView(ttk.Frame):
         self._open_popup(syllable, widget)
 
     def _open_popup(self, syllable, widget) -> None:
-        value = syllable.chord.value if syllable.chord else ""
+        # Casilla con acorde: se edita su valor. Casilla vacía: se ofrece como
+        # sugerencia el acorde de la misma posición en una sección previa del
+        # mismo tipo (memoria de progresión); si no hay, queda vacía.
+        if syllable.chord:
+            value = syllable.chord.value
+        else:
+            value = self._predicted_chord(syllable)
+        key = self.song.key if self.song else None
         ChordPopup(
             self, widget, value,
             on_save=lambda v: self._save_chord(syllable, widget, v),
             on_navigate=lambda d: self._navigate(d, syllable),
+            suggestions=chords_for_key(key),
+            key_label=key or "",
         )
 
     def _save_chord(self, syllable, widget, value: str) -> None:
@@ -327,6 +337,70 @@ class EditView(ttk.Frame):
             widget = self.grid_widget.get_chord_widget(nxt)
             if widget is not None:
                 self._open_popup(nxt, widget)
+
+    # ------------------------------------------------------------------
+    # Memoria de progresión: sugerir acordes por posición
+    # ------------------------------------------------------------------
+
+    def _predicted_chord(self, syllable: Syllable) -> str:
+        """Sugiere el acorde de una casilla vacía según una sección previa.
+
+        Toma como plantilla la primera sección anterior del mismo tipo que ya
+        tenga acordes y devuelve el que ocupa la misma posición (por orden de
+        acorde, no de sílaba) que esta casilla. Si no hay plantilla o la
+        progresión ya se agotó, devuelve "".
+        """
+        if self.song is None:
+            return ""
+
+        target = self._section_of(syllable)
+        if target is None:
+            return ""
+
+        reference: list[str] | None = None
+        for section in self.song.sections:
+            if section is target:
+                break  # solo secciones anteriores a la actual
+            if section.type == target.type:
+                chords = self._section_chords(section)
+                if chords:
+                    reference = chords
+                    break
+        if not reference:
+            return ""
+
+        k = self._chords_before(target, syllable)
+        return reference[k] if k < len(reference) else ""
+
+    def _section_of(self, syllable: Syllable):
+        """Devuelve la sección que contiene la sílaba (por identidad)."""
+        for section in self.song.sections:
+            for line in section.lines:
+                if any(s is syllable for s in line.syllables):
+                    return section
+        return None
+
+    @staticmethod
+    def _section_chords(section) -> list[str]:
+        """Lista de acordes de la sección en orden de lectura (sin vacíos)."""
+        return [
+            s.chord.value
+            for line in section.lines
+            for s in line.syllables
+            if s.chord and s.chord.value
+        ]
+
+    @staticmethod
+    def _chords_before(section, syllable: Syllable) -> int:
+        """Cuenta los acordes que preceden a la sílaba dentro de su sección."""
+        count = 0
+        for line in section.lines:
+            for s in line.syllables:
+                if s is syllable:
+                    return count
+                if s.chord and s.chord.value:
+                    count += 1
+        return count
 
     # ------------------------------------------------------------------
     # Casillas de acorde manuales

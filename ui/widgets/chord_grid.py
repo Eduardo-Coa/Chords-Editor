@@ -11,8 +11,8 @@ from ui.app import THEME
 PUNCTUATION = set(",.;:!¡?¿…")
 
 # Tamaños por defecto de fuente en modo escenario (un poco más pequeños que THEME)
-STAGE_LYRIC_SIZE_DEFAULT = 18
-STAGE_CHORD_SIZE_DEFAULT = 14
+STAGE_LYRIC_SIZE_DEFAULT = 12
+STAGE_CHORD_SIZE_DEFAULT = 10
 
 # Etiquetas legibles para cada tipo de sección
 SECTION_LABELS = {

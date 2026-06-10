@@ -30,10 +30,27 @@ class ChordPopup:
         value: str,
         on_save: Callable[[str], None],
         on_navigate: Callable[[int], None] | None = None,
+        suggestions: list[str] | None = None,
+        key_label: str = "",
     ) -> None:
         self._on_save = on_save
         self._on_navigate = on_navigate
         self._closed = False
+
+        # Acordes del tono para recorrer con ↑↓ (vacío = solo escritura manual)
+        self._suggestions = suggestions or []
+        # Evita que el trace reinicie el índice al fijar una sugerencia por código
+        self._programmatic = False
+        # Si el valor inicial (acorde existente o sugerido) está en la lista del
+        # tono, arrancamos la navegación posicionados en él; el "tope" del ciclo
+        # (al que se vuelve dando la vuelta) queda vacío. Si no, el valor es el
+        # texto tecleado y ocupa ese tope.
+        if value and value in self._suggestions:
+            self._sugg_index: int | None = self._suggestions.index(value)
+            self._typed = ""
+        else:
+            self._sugg_index = None
+            self._typed = value
 
         self.top = tk.Toplevel(parent)
         self.top.overrideredirect(True)  # sin barra de título
@@ -53,12 +70,23 @@ class ChordPopup:
         )
         self._entry.pack(padx=1, pady=1, ipady=3, ipadx=2)
 
+        # Pista discreta: tono actual + recordatorio de las flechas
+        if self._suggestions:
+            hint = f"↑↓ {key_label}".strip()
+            tk.Label(
+                self.top,
+                text=hint,
+                bg=THEME["accent"],
+                fg=THEME["bg"],
+                font=THEME["font_section"],
+            ).pack(fill="x", pady=(0, 1))
+
         self._bind_keys()
         self._position_over(anchor)
 
         self._entry.focus_force()
         self._entry.select_range(0, "end")
-        self._var.trace_add("write", lambda *_: self._update_validity())
+        self._var.trace_add("write", lambda *_: self._on_text_changed())
         self._update_validity()
 
     # ------------------------------------------------------------------
@@ -82,6 +110,9 @@ class ChordPopup:
         self._entry.bind("<Escape>", lambda _e: self.cancel())
         self._entry.bind("<Tab>", lambda _e: self._save_and_navigate(1))
         self._entry.bind("<Shift-Tab>", lambda _e: self._save_and_navigate(-1))
+        # Flechas: recorrer los acordes del tono (estilo historial de terminal)
+        self._entry.bind("<Down>", lambda _e: self._cycle_suggestion(1))
+        self._entry.bind("<Up>", lambda _e: self._cycle_suggestion(-1))
         # Clic fuera del popup: cerrar sin guardar
         self._entry.bind("<FocusOut>", lambda _e: self.cancel())
 
@@ -95,6 +126,60 @@ class ChordPopup:
             self._entry.config(fg=THEME["chord"])
         else:
             self._entry.config(fg=THEME["danger"])
+
+    def _on_text_changed(self) -> None:
+        """Si el usuario teclea, abandona la lista y recuerda lo escrito."""
+        if not self._programmatic:
+            self._sugg_index = None
+            self._typed = self._var.get()
+        self._update_validity()
+
+    # ------------------------------------------------------------------
+    # Navegación por los acordes del tono
+    # ------------------------------------------------------------------
+
+    def _cycle_suggestion(self, direction: int) -> str:
+        """Recorre los acordes del tono dentro del Entry, en ciclo.
+
+        El ciclo incluye el texto tecleado por el usuario como posición "tope":
+        ``texto → 1º → 2º → … → último → texto`` con ↓ (ascendente) y al revés
+        con ↑ (descendente). Ambas flechas entran a la lista desde el primer
+        toque y dan la vuelta hasta el texto, como el historial de la terminal.
+        """
+        if not self._suggestions:
+            return "break"
+
+        n = len(self._suggestions)
+        cur = self._sugg_index
+
+        if direction > 0:  # ↓ : avanzar (ascendente)
+            if cur is None:
+                new_index: int | None = 0
+            elif cur == n - 1:
+                new_index = None  # vuelta al texto tecleado
+            else:
+                new_index = cur + 1
+        else:  # ↑ : retroceder (descendente)
+            if cur is None:
+                new_index = n - 1
+            elif cur == 0:
+                new_index = None  # vuelta al texto tecleado
+            else:
+                new_index = cur - 1
+
+        self._sugg_index = new_index
+        text = self._typed if new_index is None else self._suggestions[new_index]
+        self._set_text(text)
+        return "break"
+
+    def _set_text(self, text: str) -> None:
+        """Fija el texto del Entry sin que el trace lo trate como escritura manual."""
+        self._programmatic = True
+        self._var.set(text)
+        self._programmatic = False
+        self._entry.icursor("end")
+        self._entry.select_range(0, "end")
+        self._update_validity()
 
     # ------------------------------------------------------------------
     # Acciones
