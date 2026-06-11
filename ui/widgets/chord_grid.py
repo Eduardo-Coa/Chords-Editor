@@ -131,7 +131,11 @@ class ChordGrid(tk.Frame):
             self._render_line(line)
 
     def _render_line(self, line) -> None:
-        """Dibuja una línea como una fila horizontal de sílabas."""
+        """Dibuja una línea: dos textos apilados en escenario, celdas en edición."""
+        if self.mode == "stage":
+            self._render_stage_line(line)
+            return
+
         row = tk.Frame(self, bg=THEME["bg"])
         row.pack(fill="x", anchor="w", padx=12, pady=1)
 
@@ -142,11 +146,6 @@ class ChordGrid(tk.Frame):
 
         # Línea de solo acordes (intro/interludio/entrada de estrofa)
         is_chord_line = all(_is_slot(s.text) for s in line.syllables)
-
-        # En escenario, una línea de acordes sin ningún acorde no se muestra
-        if self.mode == "stage" and is_chord_line and not any(s.chord for s in line.syllables):
-            row.destroy()
-            return
 
         # Índice de la última sílaba con texto real: una ranura es "interior"
         # si hay texto después de ella (entre sílabas/palabras)
@@ -159,6 +158,55 @@ class ChordGrid(tk.Frame):
             # En una línea de acordes, cada casilla con acorde lleva guión en escenario
             interior_slot = _is_slot(syllable.text) and (i < last_text_index or is_chord_line)
             self._render_syllable(row, syllable, interior_slot)
+
+    def _render_stage_line(self, line) -> None:
+        """Dibuja una línea de escenario como dos textos monoespaciados apilados:
+        la letra continua (palabras sin partir) y los acordes alineados por columna
+        encima de la sílaba a la que corresponden.
+        """
+        row = tk.Frame(self, bg=THEME["bg"])
+        row.pack(fill="x", anchor="w", padx=12, pady=0)
+
+        # Línea vacía: separador visual entre estrofas
+        if not line.syllables:
+            tk.Frame(row, bg=THEME["bg"], height=12).pack()
+            return
+
+        # Construir la fila de acordes y la de letra columna a columna.
+        # La columna donde empieza cada sílaba en la letra unida es len(lyric_str),
+        # así el acorde queda justo encima del inicio de su sílaba.
+        chord_str = ""
+        lyric_str = ""
+        for syllable in line.syllables:
+            value = syllable.chord.value if syllable.chord else ""
+            if value:
+                if len(chord_str) < len(lyric_str):
+                    chord_str += " " * (len(lyric_str) - len(chord_str))
+                elif chord_str:
+                    chord_str += " "  # evita que dos acordes se peguen
+                chord_str += value
+            lyric_str += syllable.text
+
+        chord_str = chord_str.rstrip()
+        lyric_str = lyric_str.rstrip()
+
+        # Línea sin acordes ni letra (p. ej. casillas vacías): no mostrar nada
+        if not chord_str and not lyric_str:
+            row.destroy()
+            return
+
+        family = THEME["font_stage"][0]
+        size = self.stage_lyric_size  # mismo tamaño en ambas filas → columnas alineadas
+        if chord_str:
+            tk.Label(
+                row, text=chord_str, bg=THEME["bg"], fg=THEME["chord"],
+                font=(family, size, "bold"), anchor="w", justify="left",
+            ).pack(side="top", anchor="w")
+        if lyric_str:
+            tk.Label(
+                row, text=lyric_str, bg=THEME["bg"], fg=THEME["text"],
+                font=(family, size), anchor="w", justify="left",
+            ).pack(side="top", anchor="w")
 
     def _render_syllable(
         self, parent: tk.Frame, syllable: Syllable, interior_slot: bool = False

@@ -6,6 +6,7 @@ import mysql.connector
 
 from database.config import DBConfig
 from models.song import Song, Section, Line, Syllable, Chord
+from models.setlist import Setlist, SetlistItem
 
 # Los type stubs de mysql-connector-python son incompletos (uniones de conexión,
 # cursores como context manager, filas dict). Se usa Any en la frontera con la
@@ -121,6 +122,26 @@ class Database:
                     syllable_id INT NOT NULL UNIQUE,
                     value       VARCHAR(20) NOT NULL,
                     FOREIGN KEY (syllable_id) REFERENCES syllables(id) ON DELETE CASCADE
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS setlists (
+                    id         INT AUTO_INCREMENT PRIMARY KEY,
+                    name       VARCHAR(255) NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                                ON UPDATE CURRENT_TIMESTAMP
+                ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS setlist_songs (
+                    id         INT AUTO_INCREMENT PRIMARY KEY,
+                    setlist_id INT NOT NULL,
+                    song_id    INT NOT NULL,
+                    position   INT NOT NULL,
+                    transpose  INT DEFAULT 0,
+                    FOREIGN KEY (setlist_id) REFERENCES setlists(id) ON DELETE CASCADE,
+                    FOREIGN KEY (song_id)    REFERENCES songs(id)    ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
         conn.commit()
@@ -282,7 +303,7 @@ class Database:
         self, query: str = "", filters: dict[str, str] | None = None
     ) -> list[dict]:
         """
-        Devuelve lista de canciones como dicts con id, title, key.
+        Devuelve lista de canciones como dicts con id, title, author, key.
 
         ``query`` filtra por título o autor (búsqueda parcial). ``filters`` es un
         dict {campo: valor} para filtros exactos (ej. {"author": "..."}); solo se
@@ -303,7 +324,7 @@ class Database:
                 where.append(f"{column} = %s")
                 params.append(value)
 
-        sql = "SELECT id, title, `key` FROM songs"
+        sql = "SELECT id, title, author, `key` FROM songs"
         if where:
             sql += " WHERE " + " AND ".join(where)
         sql += " ORDER BY title"
@@ -350,6 +371,114 @@ class Database:
         try:
             with conn.cursor() as cur:
                 cur.execute("DELETE FROM songs WHERE id=%s", (song_id,))
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+
+    # ------------------------------------------------------------------
+    # CRUD listas de canciones (setlists)
+    # ------------------------------------------------------------------
+
+    def list_setlists(self) -> list[dict]:
+        """Devuelve las listas como dicts con id, name y song_count."""
+        conn = self._connect()
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute(
+                "SELECT s.id, s.name, COUNT(ss.id) AS song_count "
+                "FROM setlists s "
+                "LEFT JOIN setlist_songs ss ON ss.setlist_id = s.id "
+                "GROUP BY s.id, s.name ORDER BY s.name"
+            )
+            return cur.fetchall()  # type: ignore[return-value]
+
+    def create_setlist(self, name: str) -> int:
+        """Crea una lista vacía y devuelve su id."""
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("INSERT INTO setlists (name) VALUES (%s)", (name,))
+                new_id = cur.lastrowid
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return new_id  # type: ignore[return-value]
+
+    def save_setlist(self, setlist: Setlist) -> int:
+        """
+        Inserta o actualiza una lista completa (nombre + canciones ordenadas con
+        su tono). Reemplaza todos los items en una sola transacción. Devuelve el id.
+        """
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                if setlist.id is None:
+                    cur.execute(
+                        "INSERT INTO setlists (name) VALUES (%s)", (setlist.name,)
+                    )
+                    setlist.id = cur.lastrowid
+                else:
+                    cur.execute(
+                        "UPDATE setlists SET name=%s WHERE id=%s",
+                        (setlist.name, setlist.id),
+                    )
+                    cur.execute(
+                        "DELETE FROM setlist_songs WHERE setlist_id=%s", (setlist.id,)
+                    )
+
+                for pos, item in enumerate(setlist.items):
+                    cur.execute(
+                        "INSERT INTO setlist_songs "
+                        "(setlist_id, song_id, position, transpose) "
+                        "VALUES (%s, %s, %s, %s)",
+                        (setlist.id, item.song_id, pos, item.transpose),
+                    )
+                    item.position = pos
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        return setlist.id  # type: ignore[return-value]
+
+    def load_setlist(self, setlist_id: int) -> Setlist:
+        """Carga una lista con sus canciones (título y tono de cada una)."""
+        conn = self._connect()
+        with conn.cursor(dictionary=True) as cur:
+            cur.execute("SELECT id, name FROM setlists WHERE id=%s", (setlist_id,))
+            row = cur.fetchone()
+            if row is None:
+                raise ValueError(f"No existe la lista con id={setlist_id}")
+
+            setlist = Setlist(id=row["id"], name=row["name"])
+
+            cur.execute(
+                "SELECT ss.id, ss.song_id, ss.position, ss.transpose, "
+                "       so.title, so.`key` "
+                "FROM setlist_songs ss "
+                "JOIN songs so ON so.id = ss.song_id "
+                "WHERE ss.setlist_id=%s ORDER BY ss.position",
+                (setlist_id,),
+            )
+            for item_row in cur.fetchall():
+                setlist.items.append(
+                    SetlistItem(
+                        id=item_row["id"],
+                        song_id=item_row["song_id"],
+                        position=item_row["position"],
+                        transpose=item_row["transpose"] or 0,
+                        title=item_row["title"],
+                        key=item_row["key"],
+                    )
+                )
+        return setlist
+
+    def delete_setlist(self, setlist_id: int) -> None:
+        """Elimina una lista y sus referencias a canciones (las canciones quedan)."""
+        conn = self._connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("DELETE FROM setlists WHERE id=%s", (setlist_id,))
             conn.commit()
         except Exception:
             conn.rollback()

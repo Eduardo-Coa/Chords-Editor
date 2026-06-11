@@ -142,9 +142,20 @@ class App:
         )
 
     def _build_layout(self) -> None:
-        """Monta la vista de edición como contenido principal."""
+        """Monta la barra de navegación y las secciones Canciones / Listas."""
         # Import diferido para evitar ciclo de importación con las vistas
         from ui.views.edit_view import EditView
+
+        nav = ttk.Frame(self.root, style="Surface.TFrame")
+        nav.pack(fill="x")
+        self._nav_buttons = {
+            "songs": ttk.Button(nav, text="Canciones",
+                                command=lambda: self._show_section("songs")),
+            "setlists": ttk.Button(nav, text="Listas",
+                                   command=lambda: self._show_section("setlists")),
+        }
+        self._nav_buttons["songs"].pack(side="left", padx=(10, 4), pady=6)
+        self._nav_buttons["setlists"].pack(side="left", padx=4, pady=6)
 
         self.container = ttk.Frame(self.root, style="TFrame")
         self.container.pack(fill="both", expand=True)
@@ -152,10 +163,47 @@ class App:
         self.edit_view = EditView(
             self.container, self.db, on_open_stage=self._open_stage
         )
-        self.edit_view.pack(fill="both", expand=True)
+        self.setlist_view = None  # creada de forma diferida la 1ª vez
+        self._section: str | None = None
+        self._show_section("songs")
+
+    def _show_section(self, section: str) -> None:
+        """Alterna el contenido principal entre 'songs' y 'setlists'."""
+        if section == self._section:
+            return
+        self.edit_view.pack_forget()
+        if self.setlist_view is not None:
+            self.setlist_view.pack_forget()
+
+        if section == "songs":
+            self.edit_view.pack(fill="both", expand=True)
+        else:
+            if self.setlist_view is None:
+                from ui.views.setlist_view import SetlistView
+                self.setlist_view = SetlistView(
+                    self.container, self.db, on_present=self._open_setlist_stage
+                )
+            else:
+                self.setlist_view.refresh_setlists()
+            self.setlist_view.pack(fill="both", expand=True)
+
+        self._section = section
+        for name, btn in self._nav_buttons.items():
+            btn.config(style="Accent.TButton" if name == section else "TButton")
 
     def _open_stage(self, song, offset: int) -> None:
-        """Abre la vista escenario para la canción dada."""
+        """Abre la vista escenario para una canción suelta."""
         from ui.views.stage_view import StageView
 
         StageView(self.root, song, offset)
+
+    def _open_setlist_stage(self, setlist) -> None:
+        """Abre la presentación: la lista completa en vista escenario."""
+        from ui.views.stage_view import StageView
+
+        playlist = [
+            (self.db.load_song(item.song_id), item.transpose)
+            for item in setlist.items
+        ]
+        if playlist:
+            StageView(self.root, playlist=playlist)

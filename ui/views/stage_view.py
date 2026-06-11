@@ -18,9 +18,24 @@ _SCROLL_PX_PER_SPEED = 6.0  # px/s por cada unidad del slider (vel. 5 ≈ 30 px/
 class StageView:
     """Ventana de pantalla completa con la canción para el escenario."""
 
-    def __init__(self, parent: tk.Misc, song: Song, offset: int = 0) -> None:
-        self._base = song
-        self._offset = offset
+    def __init__(
+        self,
+        parent: tk.Misc,
+        song: Song | None = None,
+        offset: int = 0,
+        *,
+        playlist: list[tuple[Song, int]] | None = None,
+        index: int = 0,
+    ) -> None:
+        # playlist: lista de (Song, offset) para una presentación. Si no viene,
+        # se envuelve la canción suelta para reusar el mismo flujo.
+        if playlist:
+            self._items: list[tuple[Song, int]] = list(playlist)
+        else:
+            assert song is not None, "StageView requiere song o playlist"
+            self._items = [(song, offset)]
+        self._index = max(0, min(index, len(self._items) - 1))
+        self._base, self._offset = self._items[self._index]
         self._lyric_size = STAGE_LYRIC_SIZE_DEFAULT
 
         self._scrolling = False
@@ -28,7 +43,7 @@ class StageView:
         self._scroll_frac = 0.0  # posición acumulada (float), evita redondeo sub-pixel
 
         self.top = tk.Toplevel(parent)
-        self.top.title(song.title)
+        self.top.title(self._base.title)
         self.top.configure(bg=THEME["bg"])
         self._fullscreen = True
         self.top.attributes("-fullscreen", True)
@@ -54,9 +69,15 @@ class StageView:
         self._inner.bind("<Configure>", self._on_inner_configure)
         self._canvas.bind("<Configure>", lambda _e: self._center())
 
+        self._title_lbl = tk.Label(
+            self._inner, text="", bg=THEME["bg"], fg=THEME["chord"], anchor="center",
+        )
+        self._title_lbl.pack(fill="x", pady=(0, 14))
+
         self._grid = ChordGrid(self._inner, None, mode="stage")
         self._grid.set_stage_font_size(self._lyric_size)
         self._grid.pack(fill="both", expand=True, anchor="nw")
+        self._update_title()
 
     def _build_transpose_panel(self) -> None:
         """Mini panel de transposición, oculto por defecto (tecla T)."""
@@ -95,6 +116,20 @@ class StageView:
         ttk.Scale(self._controls, from_=1, to=10, variable=self._speed_var,
                   orient="horizontal", length=120).pack(side="left", padx=(0, 8), pady=4)
 
+        # Navegación entre canciones de la lista (solo si hay más de una)
+        self._nav_lbl: tk.Label | None = None
+        if len(self._items) > 1:
+            self._prev_btn = boton("«", lambda: self._goto(-1))
+            self._prev_btn.pack(side="left", padx=(12, 2), pady=4)
+            self._nav_lbl = tk.Label(
+                self._controls, text="", bg=THEME["surface2"],
+                fg=THEME["accent"], font=THEME["font_ui"],
+            )
+            self._nav_lbl.pack(side="left", padx=2)
+            self._next_btn = boton("»", lambda: self._goto(1), w=3)
+            self._next_btn.pack(side="left", padx=2, pady=4)
+            self._update_nav_label()
+
     def _bind_keys(self) -> None:
         self.top.bind("<Escape>", lambda _e: self.close())
         self.top.bind("<f>", lambda _e: self._toggle_fullscreen())
@@ -107,6 +142,11 @@ class StageView:
         self.top.bind("<Up>", lambda _e: self._canvas.yview_scroll(-1, "units"))
         self.top.bind("<Down>", lambda _e: self._canvas.yview_scroll(1, "units"))
         self.top.bind("<MouseWheel>", self._on_mousewheel)
+        # Navegación entre canciones de la lista
+        self.top.bind("<Right>", lambda _e: self._goto(1))
+        self.top.bind("<Next>", lambda _e: self._goto(1))     # Av Pág
+        self.top.bind("<Left>", lambda _e: self._goto(-1))
+        self.top.bind("<Prior>", lambda _e: self._goto(-1))   # Re Pág
 
     # ------------------------------------------------------------------
     # Centrado
@@ -127,9 +167,16 @@ class StageView:
     # Acciones
     # ------------------------------------------------------------------
 
+    def _update_title(self) -> None:
+        """Actualiza el título de la canción en escenario (color y tamaño de acorde, algo mayor)."""
+        family = THEME["font_stage"][0]
+        size = round(self._grid.stage_chord_size * 1.4)
+        self._title_lbl.config(text=self._base.title, font=(family, size, "bold"))
+
     def _render(self) -> None:
         display = self._base if self._offset == 0 else transpose_song(self._base, self._offset)
         self._grid.set_song(display)
+        self._update_title()
         self._offset_lbl.config(text=f"{self._offset:+d}".replace("+0", "0"))
         self.top.after_idle(self._center)
 
@@ -137,9 +184,37 @@ class StageView:
         self._offset += delta
         self._render()
 
+    def _goto(self, delta: int) -> None:
+        """Pasa a la siguiente/anterior canción de la lista (con tope en los extremos)."""
+        new_index = self._index + delta
+        if not (0 <= new_index < len(self._items)) or new_index == self._index:
+            return
+        # Conservar la transposición en vivo de la canción actual al movernos
+        self._items[self._index] = (self._base, self._offset)
+        self._index = new_index
+        self._base, self._offset = self._items[self._index]
+
+        # Detener auto-scroll y volver al inicio de la nueva canción
+        if self._scrolling:
+            self._toggle_scroll()
+        self._scroll_frac = 0.0
+        self._canvas.yview_moveto(0.0)
+
+        self.top.title(self._base.title)
+        self._update_nav_label()
+        self._render()
+
+    def _update_nav_label(self) -> None:
+        """Actualiza el indicador 'n/total — Título' del panel de navegación."""
+        if self._nav_lbl is not None:
+            self._nav_lbl.config(
+                text=f"{self._index + 1}/{len(self._items)}  ·  {self._base.title}"
+            )
+
     def _change_font(self, delta: int) -> None:
         self._lyric_size = max(10, self._lyric_size + delta)
         self._grid.set_stage_font_size(self._lyric_size)
+        self._update_title()
         self.top.after_idle(self._center)
 
     def _toggle_panel(self) -> None:
