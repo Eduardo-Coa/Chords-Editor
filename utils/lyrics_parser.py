@@ -295,19 +295,25 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
             continue
 
         if has_chords and stripped and is_chord_line_text(raw):
-            next_raw = raw_lines[i + 1] if i + 1 < n else ""
-            next_stripped = next_raw.strip()
+            # Buscar la línea de letra debajo, saltando líneas en blanco
+            # intermedias (algunas exportaciones dejan un espacio entre la fila
+            # de acordes y su letra).
+            j = i + 1
+            while j < n and raw_lines[j].strip() == "":
+                j += 1
+            cand_raw = raw_lines[j] if j < n else ""
+            cand_stripped = cand_raw.strip()
             is_lyric_below = (
-                next_stripped != ""
-                and not is_section_header(next_stripped)
-                and not is_chord_line_text(next_raw)
+                cand_stripped != ""
+                and not is_section_header(cand_stripped)
+                and not is_chord_line_text(cand_raw)
             )
             if current is None:
                 current = start_section(None, "verse")
             if is_lyric_below:
-                current.lines.append(_attach_chords(raw, next_raw, counters["line"]))
+                current.lines.append(_attach_chords(raw, cand_raw, counters["line"]))
                 counters["line"] += 1
-                i += 2
+                i = j + 1  # consume acordes, blancos intermedios y la letra
             else:
                 tokens = [t for _, t in _runs(raw)]
                 current.lines.append(_filled_chord_line(tokens, counters["line"]))

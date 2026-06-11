@@ -240,14 +240,15 @@ class EditView(ttk.Frame):
         self.song = self.db.load_song(song_id)
         self.transpose_offset = 0
         self._offset_lbl.config(text="0")
-        self._reset_to_edit_mode()
         self._meta_vars["title"].set(self.song.title)
         self._meta_vars["author"].set(self.song.author or "")
         self._meta_vars["key"].set(self.song.key or "")
         self._meta_vars["rhythm"].set(self.song.rhythm or "")
         self._meta_vars["capo"].set(str(self.song.capo))
-        self._render_grid()
         self._show_grid()
+        # Vista escenario por defecto al abrir una canción (editar es opt-in
+        # con el botón "Volver a editar")
+        self._set_view_mode("stage")
         self._set_status(f"Cargada: {self.song.title}")
 
     def _apply_metadata_to_song(self) -> None:
