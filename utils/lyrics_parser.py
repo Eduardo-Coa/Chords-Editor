@@ -4,7 +4,7 @@ from __future__ import annotations
 import re
 from collections import defaultdict, deque
 
-from models.song import Song, Section, Line, Syllable
+from models.song import Song, Section, Line, Syllable, Chord
 from utils.syllabifier import syllabify
 
 PUNCTUATION = set(",.;:!¡?¿…\"'()-—«»")
@@ -15,6 +15,26 @@ CHORD_LINE_SLOTS = 4
 
 # Encabezado de sección: una línea que es solo [texto], ej. [Coro], [Estrofa 1]
 SECTION_RE = re.compile(r"^\[(.+)\]$")
+
+# Reconoce un acorde en notación americana (A–G), única que entiende el
+# transpositor. La calidad/extensiones se limitan a un whitelist para que una
+# palabra de la letra como "Gloria" no matchee como "G + loria".
+CHORD_RE = re.compile(
+    r"^[A-G][#b]?"                                          # raíz
+    r"(?:maj|min|sus|dim|aug|add|m|M|°|\+|-|#|b|\d|\(|\))*"  # calidad/extensiones
+    r"(?:/[A-G][#b]?)?$"                                     # bajo opcional
+)
+
+
+def is_chord_token(tok: str) -> bool:
+    """True si el token aislado parece un acorde (notación americana)."""
+    return bool(CHORD_RE.match(tok))
+
+
+def is_chord_line_text(line: str) -> bool:
+    """True si la línea de texto es de solo acordes (todos sus tokens lo son)."""
+    tokens = line.split()
+    return bool(tokens) and all(is_chord_token(t) for t in tokens)
 
 # Palabras clave para inferir el tipo de sección a partir de su etiqueta.
 # El primer tipo cuya palabra clave aparezca en la etiqueta gana.
@@ -109,6 +129,122 @@ def _parse_line(text: str, position: int) -> Line:
     return line
 
 
+# ----------------------------------------------------------------------
+# Alineación de acordes por columna (formato Cifra Club)
+# ----------------------------------------------------------------------
+
+
+def _runs(raw: str) -> list[tuple[int, str]]:
+    """Devuelve las corridas de no-espacio como (columna_inicial, texto)."""
+    result: list[tuple[int, str]] = []
+    i, n = 0, len(raw)
+    while i < n:
+        if raw[i] == " ":
+            i += 1
+            continue
+        start = i
+        while i < n and raw[i] != " ":
+            i += 1
+        result.append((start, raw[start:i]))
+    return result
+
+
+def _is_assignable(text: str) -> bool:
+    """True si a la sílaba se le puede poner un acorde (tiene letra real)."""
+    stripped = text.strip()
+    return stripped != "" and any(c not in PUNCTUATION for c in stripped)
+
+
+def _build_line_with_columns(raw: str, position: int) -> tuple[Line, list[int]]:
+    """
+    Como _parse_line pero conserva la columna inicial de cada sílaba en el
+    texto crudo (sin descartar los espacios de sangría), para alinear acordes.
+    """
+    line = Line(id=None, position=position)
+    cols: list[int] = []
+    words = _runs(raw)
+    pos = 0
+    for wi, (start_col, word) in enumerate(words):
+        parts = _split_word(word)
+        if not parts:
+            continue
+        # Columna de cada parte dentro de la palabra (syllabify preserva caracteres)
+        off = 0
+        part_cols: list[int] = []
+        for part in parts:
+            part_cols.append(start_col + off)
+            off += len(part)
+        # Espacio de separación al final de la última parte (salvo última palabra)
+        if wi < len(words) - 1:
+            parts[-1] = parts[-1] + " "
+        for part, col in zip(parts, part_cols):
+            line.syllables.append(Syllable(id=None, position=pos, text=part))
+            cols.append(col)
+            pos += 1
+    return line, cols
+
+
+def _target_index(cols: list[int], syllables: list[Syllable], col: int) -> int | None:
+    """
+    Elige la sílaba (índice) a la que asignar un acorde ubicado en la columna
+    ``col``: la que contiene esa columna; si cae en un espacio, la más cercana a
+    la derecha; si está más allá de la última, la última sílaba asignable.
+    """
+    candidates: list[tuple[int, int, int]] = []  # (idx, start, end)
+    for idx, syl in enumerate(syllables):
+        if not _is_assignable(syl.text):
+            continue
+        start = cols[idx]
+        end = start + len(syl.text.strip())
+        candidates.append((idx, start, end))
+    if not candidates:
+        return None
+    for idx, start, end in candidates:
+        if start <= col < end:
+            return idx
+    right = [c for c in candidates if c[1] >= col]
+    if right:
+        return min(right, key=lambda c: c[1])[0]
+    return candidates[-1][0]
+
+
+def _attach_chords(chord_raw: str, lyric_raw: str, position: int) -> Line:
+    """Construye una línea de letra con los acordes de ``chord_raw`` alineados."""
+    line, cols = _build_line_with_columns(lyric_raw, position)
+    chords = _runs(chord_raw)
+    if not line.syllables:
+        return _filled_chord_line([t for _, t in chords], position)
+
+    for col, token in chords:
+        idx = _target_index(cols, line.syllables, col)
+        if idx is None:
+            continue
+        if line.syllables[idx].chord is not None:
+            # Colisión: dos acordes sobre la misma sílaba → casilla intercalada
+            slot = Syllable(id=None, position=0, text="")
+            line.syllables.insert(idx + 1, slot)
+            cols.insert(idx + 1, col)
+            slot.chord = Chord(id=None, value=token)
+        else:
+            line.syllables[idx].chord = Chord(id=None, value=token)
+
+    for pos, syl in enumerate(line.syllables):
+        syl.position = pos
+    return line
+
+
+def _filled_chord_line(tokens: list[str], position: int) -> Line:
+    """Línea de solo acordes (slots vacíos) con los acordes en orden."""
+    line = Line(id=None, position=position)
+    n = max(len(tokens), CHORD_LINE_SLOTS)
+    for i in range(n):
+        syl = Syllable(id=None, position=i, text="")
+        if i < len(tokens):
+            syl.chord = Chord(id=None, value=tokens[i])
+        line.syllables.append(syl)
+    return line
+
+
 def parse_lyrics(text: str, title: str = "Sin título") -> Song:
     """
     Construye una Song a partir del texto pegado.
@@ -116,7 +252,19 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
     Los encabezados [Coro], [Estrofa 1], etc. abren nuevas secciones. La letra
     anterior al primer encabezado va en una sección por defecto (verse, sin
     etiqueta). Las líneas vacías se conservan como separadores (Line sin sílabas).
+
+    Si el texto trae líneas de acordes alineadas por columna encima de la letra
+    (formato Cifra Club), los acordes se asignan automáticamente a la sílaba
+    correspondiente. Una línea de acordes sin letra debajo se trata como pasaje
+    instrumental (línea de casillas). Cuando no hay acordes en el texto, cada
+    sección arranca con una línea de casillas vacías para llenar a mano.
     """
+    raw_lines = text.split("\n")
+    has_chords = any(
+        not is_section_header(rl.strip()) and is_chord_line_text(rl)
+        for rl in raw_lines
+    )
+
     song = Song(id=None, title=title)
     current: Section | None = None
     counters = {"section": 0, "line": 0}
@@ -125,19 +273,46 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
         section = Section(
             id=None, position=counters["section"], type=section_type, label=label
         )
-        # Cada sección arranca con una línea de acordes (intro/interludio/entrada)
-        section.lines.append(_make_chord_line(0))
+        if not has_chords:
+            # Sin acordes en el texto: casillas vacías al inicio (flujo clásico)
+            section.lines.append(_make_chord_line(0))
+            counters["line"] = 1
+        else:
+            counters["line"] = 0
         song.sections.append(section)
         counters["section"] += 1
-        counters["line"] = 1  # las líneas de letra van después de la de acordes
         return section
 
-    for raw_line in text.split("\n"):
-        stripped = raw_line.strip()
+    i, n = 0, len(raw_lines)
+    while i < n:
+        raw = raw_lines[i]
+        stripped = raw.strip()
 
         if is_section_header(stripped):
             label, section_type = parse_section_header(stripped)
             current = start_section(label, section_type)
+            i += 1
+            continue
+
+        if has_chords and stripped and is_chord_line_text(raw):
+            next_raw = raw_lines[i + 1] if i + 1 < n else ""
+            next_stripped = next_raw.strip()
+            is_lyric_below = (
+                next_stripped != ""
+                and not is_section_header(next_stripped)
+                and not is_chord_line_text(next_raw)
+            )
+            if current is None:
+                current = start_section(None, "verse")
+            if is_lyric_below:
+                current.lines.append(_attach_chords(raw, next_raw, counters["line"]))
+                counters["line"] += 1
+                i += 2
+            else:
+                tokens = [t for _, t in _runs(raw)]
+                current.lines.append(_filled_chord_line(tokens, counters["line"]))
+                counters["line"] += 1
+                i += 1
             continue
 
         if current is None:
@@ -146,6 +321,7 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
 
         current.lines.append(_parse_line(stripped, counters["line"]))
         counters["line"] += 1
+        i += 1
 
     if not song.sections:
         start_section(None, "verse")
