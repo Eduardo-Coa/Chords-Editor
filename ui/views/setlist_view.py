@@ -232,7 +232,7 @@ class SetlistView(ttk.Frame):
         if item.key:
             if offset == 0:
                 return item.key
-            return f"{item.key}→{transpose_chord(item.key, offset)}"
+            return f"{item.key}→{transpose_chord(item.key, offset, item.key)}"
         return f"{offset:+d}".replace("+0", "0")
 
     def _change_transpose(self, index: int, delta: int) -> None:

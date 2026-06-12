@@ -5,7 +5,7 @@ from __future__ import annotations
 from models.song import Chord, Song
 from utils.lyrics_parser import (
     parse_lyrics, merge_lyrics, is_chord_line, CHORD_LINE_SLOTS,
-    is_section_header, parse_section_header,
+    is_section_header, parse_section_header, detect_header,
 )
 
 
@@ -104,6 +104,48 @@ def test_letra_antes_de_encabezado_va_en_seccion_por_defecto():
     song = parse_lyrics("Línea suelta\n[Coro]\nletra del coro")
     assert song.sections[0].label is None
     assert song.sections[1].label == "Coro"
+
+
+# ---------------------------------------------------------------------------
+# Encabezados implícitos: números y palabras clave sin corchetes
+# ---------------------------------------------------------------------------
+
+def test_detect_header_numero_es_estrofa():
+    assert detect_header("1") == ("Estrofa 1", "verse")
+    assert detect_header("2") == ("Estrofa 2", "verse")
+    assert detect_header("3.") == ("Estrofa 3", "verse")
+
+
+def test_detect_header_palabra_clave():
+    assert detect_header("Coro:") == ("Coro", "chorus")
+    assert detect_header("coro") == ("Coro", "chorus")
+    assert detect_header("Puente") == ("Puente", "bridge")
+    assert detect_header("Estrofa 2") == ("Estrofa 2", "verse")
+
+
+def test_detect_header_linea_normal_no_es_encabezado():
+    assert detect_header("Vivo por Cristo, confiando en su amor,") is None
+    assert detect_header("es de mi senda Jesús guía fiel.") is None
+    assert detect_header("") is None
+
+
+def test_parse_con_numeros_y_coro_implicitos():
+    texto = (
+        "1\nVivo por Cristo\nvida me imparte\n"
+        "Coro:\n\n¡Oh, Salvador bendito!\n"
+        "2\nVivo por Cristo, murió por mí"
+    )
+    song = parse_lyrics(texto)
+    labels = [(s.label, s.type) for s in song.sections]
+    assert labels == [
+        ("Estrofa 1", "verse"),
+        ("Coro", "chorus"),
+        ("Estrofa 2", "verse"),
+    ]
+    # La línea en blanco tras "Coro:" no deja un separador al inicio del coro
+    coro_lyric = [l for l in song.sections[1].lines if not is_chord_line(l)]
+    primera = "".join(s.text for s in coro_lyric[0].syllables).strip()
+    assert primera == "¡Oh, Salvador bendito!"
 
 
 # ---------------------------------------------------------------------------

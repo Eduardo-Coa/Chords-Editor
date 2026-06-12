@@ -14,3 +14,7 @@ __pycache__/
 
 # Preferencias personales de la app (color de acordes, etc.)
 preferences.json
+
+# Artefactos de empaquetado (PyInstaller). El .spec SÍ se versiona; assets/icon.ico también.
+build/
+dist/

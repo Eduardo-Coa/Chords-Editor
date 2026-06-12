@@ -71,6 +71,65 @@ def parse_section_header(line: str) -> tuple[str, str]:
     return label, "verse"
 
 
+# Encabezados "implícitos" sin corchetes que se reconocen al pegar la letra:
+# una palabra clave sola (opcionalmente con ":") = encabezado de sección.
+_IMPLICIT_SECTION_KEYWORDS = {
+    "coro": ("Coro", "chorus"),
+    "estribillo": ("Estribillo", "chorus"),
+    "puente": ("Puente", "bridge"),
+    "interludio": ("Interludio", "bridge"),
+    "intro": ("Intro", "intro"),
+    "introduccion": ("Intro", "intro"),
+    "final": ("Final", "outro"),
+    "outro": ("Final", "outro"),
+    "coda": ("Coda", "outro"),
+}
+
+# "Estrofa 2" / "Verso 2" escrito como texto (con o sin número)
+_VERSE_WORD_RE = re.compile(r"^(?:estrofa|verso)\s*(\d+)?$")
+
+
+def detect_header(line: str) -> tuple[str, str] | None:
+    """
+    Detecta un encabezado de sección y devuelve (etiqueta, tipo), o None.
+
+    Reconoce tres formas:
+      - Explícita con corchetes:  ``[Coro]``, ``[Estrofa 1]``
+      - Un número solo:           ``1`` → ("Estrofa 1", "verse")
+      - Una palabra clave sola:   ``Coro:``, ``coro`` → ("Coro", "chorus")
+    """
+    stripped = line.strip()
+    if not stripped:
+        return None
+
+    # Explícito: [texto]
+    if is_section_header(stripped):
+        return parse_section_header(stripped)
+
+    # Quitar marcadores finales típicos: "Coro:", "1.", "2)"
+    core = stripped.rstrip(".:)-").strip()
+    if not core:
+        return None
+
+    # Número solo → Estrofa N
+    if core.isdigit():
+        return f"Estrofa {core}", "verse"
+
+    normalized = _strip_accents(core.lower())
+
+    # "Estrofa 2" / "Verso" escrito como texto
+    verse_match = _VERSE_WORD_RE.match(normalized)
+    if verse_match:
+        num = verse_match.group(1)
+        return (f"Estrofa {num}" if num else "Estrofa"), "verse"
+
+    # Palabra clave conocida (coro, puente, intro, final, ...)
+    if normalized in _IMPLICIT_SECTION_KEYWORDS:
+        return _IMPLICIT_SECTION_KEYWORDS[normalized]
+
+    return None
+
+
 def _split_word(word: str) -> list[str]:
     """
     Separa un 'word' en partes: puntuación inicial, sílabas del núcleo y
@@ -261,7 +320,7 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
     """
     raw_lines = text.split("\n")
     has_chords = any(
-        not is_section_header(rl.strip()) and is_chord_line_text(rl)
+        detect_header(rl) is None and is_chord_line_text(rl)
         for rl in raw_lines
     )
 
@@ -288,9 +347,9 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
         raw = raw_lines[i]
         stripped = raw.strip()
 
-        if is_section_header(stripped):
-            label, section_type = parse_section_header(stripped)
-            current = start_section(label, section_type)
+        header = detect_header(stripped)
+        if header is not None:
+            current = start_section(header[0], header[1])
             i += 1
             continue
 
@@ -324,6 +383,14 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
         if current is None:
             # Letra antes de cualquier encabezado: sección por defecto sin etiqueta
             current = start_section(None, "verse")
+
+        # Omitir líneas en blanco al inicio de una sección (justo tras su encabezado)
+        only_chord_line = (
+            len(current.lines) == 1 and is_chord_line(current.lines[0])
+        )
+        if not stripped and (only_chord_line or not current.lines):
+            i += 1
+            continue
 
         current.lines.append(_parse_line(stripped, counters["line"]))
         counters["line"] += 1
