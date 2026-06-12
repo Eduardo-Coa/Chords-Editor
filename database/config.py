@@ -1,64 +1,42 @@
-"""Carga la configuración de conexión MySQL desde el archivo .env."""
+"""Configuración de la base de datos SQLite de HymnChords.
+
+SQLite no necesita servidor ni credenciales: la base es un único archivo. Se
+guarda en la carpeta de datos del usuario (no junto al ejecutable, que puede ser
+de solo lectura), de modo que cada usuario tiene su propia biblioteca portable.
+"""
 
 from __future__ import annotations
+import os
 from dataclasses import dataclass
 from pathlib import Path
+
+APP_DIR_NAME = "HymnChords"
+DB_FILENAME = "hymnchords.db"
 
 
 @dataclass
 class DBConfig:
-    """Parámetros de conexión a MySQL leídos del archivo .env."""
+    """Ubicación del archivo SQLite de la aplicación."""
 
-    host: str
-    port: int
-    user: str
-    password: str
-    database: str
+    path: Path
 
 
-def load_config(env_path: Path | None = None, test: bool = False) -> DBConfig:
+def data_dir() -> Path:
+    """Carpeta de datos del usuario donde vive la base (y futuras preferencias)."""
+    appdata = os.environ.get("APPDATA")  # Windows
+    if appdata:
+        return Path(appdata) / APP_DIR_NAME
+    # macOS / Linux: carpeta oculta en el home
+    return Path.home() / f".{APP_DIR_NAME.lower()}"
+
+
+def load_config(path: Path | None = None) -> DBConfig:
     """
-    Lee el archivo .env y devuelve un DBConfig con las credenciales MySQL.
+    Devuelve la configuración con la ruta al archivo SQLite.
 
-    Busca el .env en el directorio raíz del proyecto (dos niveles arriba de
-    este archivo). Si no existe, lanza FileNotFoundError con instrucciones claras.
-
-    Si ``test`` es True, usa la base de datos de pruebas (``DB_NAME_TEST`` del
-    .env, o ``<DB_NAME>_test`` por defecto) para no tocar nunca los datos reales.
+    Si no se indica ``path``, se usa ``<carpeta de datos>/hymnchords.db``. Los
+    tests pasan una ruta temporal propia para no tocar nunca la base real.
     """
-    if env_path is None:
-        env_path = Path(__file__).parent.parent / ".env"
-
-    if not env_path.exists():
-        example = env_path.parent / ".env.example"
-        raise FileNotFoundError(
-            f"No se encontró el archivo de configuración: {env_path}\n"
-            f"Copia '{example}' a '.env' y rellena tus credenciales MySQL."
-        )
-
-    values: dict[str, str] = {}
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        values[key.strip()] = value.strip()
-
-    try:
-        database = values["DB_NAME"]
-        if test:
-            database = values.get("DB_NAME_TEST") or f"{database}_test"
-        return DBConfig(
-            host=values["DB_HOST"],
-            port=int(values["DB_PORT"]),
-            user=values["DB_USER"],
-            password=values["DB_PASSWORD"],
-            database=database,
-        )
-    except KeyError as e:
-        raise KeyError(
-            f"Falta la variable {e} en el archivo .env. "
-            f"Revisa .env.example para ver todas las variables requeridas."
-        ) from e
+    if path is None:
+        path = data_dir() / DB_FILENAME
+    return DBConfig(path=path)

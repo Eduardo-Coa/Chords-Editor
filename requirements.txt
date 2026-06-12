@@ -1,1 +1,4 @@
-mysql-connector-python
+# HymnChords no requiere dependencias externas en tiempo de ejecución:
+# usa solo la librería estándar de Python (tkinter para la UI y sqlite3 para
+# la base de datos). Este archivo se conserva para la fase de empaquetado
+# (p. ej. pyinstaller) y para herramientas de desarrollo como pytest.
