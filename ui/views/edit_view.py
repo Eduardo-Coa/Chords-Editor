@@ -7,7 +7,7 @@ from tkinter import ttk, messagebox, colorchooser
 
 from database.db import Database
 from models.song import Song, Chord, Syllable
-from models.transposer import transpose_song
+from models.transposer import transpose_song, display_song
 from models.key_chords import chords_for_key
 from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
 from ui.app import THEME
@@ -146,6 +146,7 @@ class EditView(ttk.Frame):
             on_add_left=lambda s: self._add_slot(s, before=True),
             on_add_right=lambda s: self._add_slot(s, before=False),
             on_remove=self._remove_slot,
+            on_section_transpose=self._change_section_transpose,
         )
         self.grid_widget.pack(fill="both", expand=True, anchor="nw")
 
@@ -277,10 +278,9 @@ class EditView(ttk.Frame):
         if self.song is None:
             self.grid_widget.set_song(None)
             return
-        if self.transpose_offset == 0:
-            display = self.song
-        else:
-            display = transpose_song(self.song, self.transpose_offset)
+        # display_song aplica offset global + modulación por bloque. Cuando no hay
+        # transposición efectiva devuelve el modelo real (acordes editables).
+        display = display_song(self.song, self.transpose_offset)
         self.grid_widget.set_song(display)
         n = len(self.grid_widget.editable_syllables())
         self._set_status(f"{self.song.title} — {n} sílabas")
@@ -292,6 +292,11 @@ class EditView(ttk.Frame):
     def _on_chord_click(self, syllable, widget) -> None:
         if self.transpose_offset != 0:
             self._set_status("Vuelve al tono original (0) para editar acordes")
+            return
+        # Sílaba de una sección modulada: es una copia transpuesta, no el modelo
+        # real (no se encuentra por identidad). Hay que volver el bloque a 0.
+        if self._section_of(syllable) is None:
+            self._set_status("Vuelve este bloque a 0 para editar sus acordes")
             return
         self._open_popup(syllable, widget)
 
@@ -460,6 +465,18 @@ class EditView(ttk.Frame):
         self.transpose_offset = (self.transpose_offset + delta)
         self._offset_lbl.config(text=f"{self.transpose_offset:+d}".replace("+0", "0"))
         self._render_grid()
+
+    def _change_section_transpose(self, index: int, delta: int) -> None:
+        """Modula una sección concreta (índice en la canción real) y re-renderiza."""
+        if self.song is None or not (0 <= index < len(self.song.sections)):
+            return
+        section = self.song.sections[index]
+        section.transpose += delta
+        self._autosave()
+        self._render_grid()
+        label = section.label or f"sección {index + 1}"
+        off = section.transpose
+        self._set_status(f"{label}: tono del bloque {off:+d}".replace("+0", "0"))
 
     def _save_in_key(self) -> None:
         if self.song is None or self.transpose_offset == 0:

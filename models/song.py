@@ -39,6 +39,9 @@ class Section:
     position: int
     type: str          # 'verse' | 'chorus' | 'bridge' | 'intro' | 'outro'
     label: str | None
+    # Modulación propia del bloque (semitonos), no destructiva: se suma al offset
+    # global al mostrar. 0 = sin modulación. Solo aplica de la 2ª sección en adelante.
+    transpose: int = 0
     lines: list[Line] = field(default_factory=list)
 
 

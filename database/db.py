@@ -96,9 +96,11 @@ class Database:
                     position INT NOT NULL,
                     type     ENUM('verse','chorus','bridge','intro','outro') NOT NULL,
                     label    VARCHAR(100),
+                    transpose INT DEFAULT 0,
                     FOREIGN KEY (song_id) REFERENCES songs(id) ON DELETE CASCADE
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
             """)
+            self._migrate_section_transpose(cur)
             cur.execute("""
                 CREATE TABLE IF NOT EXISTS `lines` (
                     id         INT AUTO_INCREMENT PRIMARY KEY,
@@ -146,6 +148,17 @@ class Database:
             """)
         conn.commit()
 
+    def _migrate_section_transpose(self, cur: Any) -> None:
+        """Añade la columna ``transpose`` a ``sections`` si una BD antigua no la tiene."""
+        cur.execute(
+            "SELECT COUNT(*) FROM information_schema.COLUMNS "
+            "WHERE TABLE_SCHEMA=%s AND TABLE_NAME='sections' "
+            "AND COLUMN_NAME='transpose'",
+            (self._config.database,),
+        )
+        if cur.fetchone()[0] == 0:
+            cur.execute("ALTER TABLE sections ADD COLUMN transpose INT DEFAULT 0")
+
     # ------------------------------------------------------------------
     # CRUD canciones
     # ------------------------------------------------------------------
@@ -190,9 +203,10 @@ class Database:
         """Inserta secciones, líneas, sílabas y acordes de la canción."""
         for section in song.sections:
             cur.execute(
-                "INSERT INTO sections (song_id, position, type, label) "
-                "VALUES (%s, %s, %s, %s)",
-                (song.id, section.position, section.type, section.label),
+                "INSERT INTO sections (song_id, position, type, label, transpose) "
+                "VALUES (%s, %s, %s, %s, %s)",
+                (song.id, section.position, section.type, section.label,
+                 section.transpose),
             )
             section.id = cur.lastrowid
 
@@ -241,7 +255,7 @@ class Database:
             )
 
             cur.execute(
-                "SELECT id, position, type, label FROM sections "
+                "SELECT id, position, type, label, transpose FROM sections "
                 "WHERE song_id=%s ORDER BY position",
                 (song_id,),
             )
@@ -251,6 +265,7 @@ class Database:
                     position=sec_row["position"],
                     type=sec_row["type"],
                     label=sec_row["label"],
+                    transpose=sec_row["transpose"] or 0,
                 )
                 section.lines = self._load_lines(cur, sec_row["id"])
                 song.sections.append(section)

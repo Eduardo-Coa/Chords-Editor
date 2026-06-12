@@ -62,3 +62,35 @@ def transpose_song(song: Song, semitones: int) -> Song:
         song_copy.key = transpose_chord(song_copy.key, semitones)
 
     return song_copy
+
+
+def display_song(song: Song, global_offset: int = 0) -> Song:
+    """
+    Devuelve la canción lista para mostrar, aplicando a cada sección un total de
+    ``global_offset + section.transpose`` semitonos (modulación por bloque).
+
+    No es destructiva. Para que la edición de acordes siga operando sobre el
+    modelo real, las secciones cuyo total es 0 se devuelven por referencia (sin
+    copiar); solo se copian y transponen las que tienen modulación efectiva. Cada
+    sección conserva su ``transpose`` para que la UI muestre el valor del bloque.
+    """
+    if global_offset == 0 and all(s.transpose == 0 for s in song.sections):
+        return song  # nada que transponer: modelo real, totalmente editable
+
+    shown = Song(
+        id=song.id, title=song.title, author=song.author,
+        key=transpose_chord(song.key, global_offset) if song.key else song.key,
+        rhythm=song.rhythm, capo=song.capo, notes=song.notes,
+    )
+    for section in song.sections:
+        total = global_offset + section.transpose
+        if total == 0:
+            shown.sections.append(section)  # sin cambios: sección real (editable)
+            continue
+        sec_copy = copy.deepcopy(section)
+        for line in sec_copy.lines:
+            for syllable in line.syllables:
+                if syllable.chord is not None:
+                    syllable.chord.value = transpose_chord(syllable.chord.value, total)
+        shown.sections.append(sec_copy)
+    return shown

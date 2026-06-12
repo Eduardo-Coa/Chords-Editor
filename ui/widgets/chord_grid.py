@@ -47,6 +47,7 @@ class ChordGrid(tk.Frame):
         on_add_left: Callable[[Syllable], None] | None = None,
         on_add_right: Callable[[Syllable], None] | None = None,
         on_remove: Callable[[Syllable], None] | None = None,
+        on_section_transpose: Callable[[int, int], None] | None = None,
     ) -> None:
         bg = THEME["bg"]
         super().__init__(parent, bg=bg)
@@ -56,6 +57,7 @@ class ChordGrid(tk.Frame):
         self._on_add_left = on_add_left
         self._on_add_right = on_add_right
         self._on_remove = on_remove
+        self._on_section_transpose = on_section_transpose
 
         # Tamaños de fuente del modo escenario (ajustables en vivo)
         self.stage_lyric_size = STAGE_LYRIC_SIZE_DEFAULT
@@ -98,8 +100,8 @@ class ChordGrid(tk.Frame):
         if self.song is None:
             return
 
-        for section in self.song.sections:
-            self._render_section(section)
+        for i, section in enumerate(self.song.sections):
+            self._render_section(section, i)
 
     def get_chord_widget(self, syllable: Syllable) -> tk.Widget | None:
         """Devuelve el widget de acorde de una sílaba (para anclar el popup)."""
@@ -113,22 +115,53 @@ class ChordGrid(tk.Frame):
     # Render de secciones y líneas
     # ------------------------------------------------------------------
 
-    def _render_section(self, section) -> None:
-        """Dibuja la etiqueta de la sección y todas sus líneas."""
+    def _render_section(self, section, index: int = 0) -> None:
+        """Dibuja la etiqueta de la sección, su control de tono y todas sus líneas."""
         label_text = section.label or SECTION_LABELS.get(section.type, "")
-        if label_text:
-            label = tk.Label(
-                self,
-                text=label_text.upper(),
-                bg=THEME["bg"],
-                fg=THEME["section_label"],
-                font=THEME["font_section"],
-                anchor="w",
-            )
-            label.pack(fill="x", padx=12, pady=(12, 2))
+        # El control de modulación por bloque solo aparece en edición y de la
+        # segunda sección en adelante (la primera es la referencia en tono base).
+        show_control = (
+            self.mode == "edit" and index >= 1
+            and self._on_section_transpose is not None
+        )
+        if label_text or show_control:
+            header = tk.Frame(self, bg=THEME["bg"])
+            header.pack(fill="x", padx=12, pady=(12, 2))
+            if label_text:
+                tk.Label(
+                    header, text=label_text.upper(), bg=THEME["bg"],
+                    fg=THEME["section_label"], font=THEME["font_section"], anchor="w",
+                ).pack(side="left")
+            if show_control:
+                self._render_section_control(header, section, index)
 
         for line in section.lines:
             self._render_line(line)
+
+    def _render_section_control(self, header: tk.Frame, section, index: int) -> None:
+        """Mini control [−] tono [+] para modular esta sección respecto al tono base."""
+        box = tk.Frame(header, bg=THEME["bg"])
+        box.pack(side="right")
+
+        tk.Label(box, text="Tono del bloque", bg=THEME["bg"], fg=THEME["text_muted"],
+                 font=THEME["font_section"]).pack(side="left", padx=(0, 4))
+
+        def btn(text: str, delta: int) -> tk.Button:
+            return tk.Button(
+                box, text=text, width=2, relief="flat",
+                bg=THEME["surface2"], fg=THEME["text"],
+                activebackground=THEME["border"], font=THEME["font_section"],
+                command=lambda: self._on_section_transpose(index, delta),
+            )
+
+        btn("−", -1).pack(side="left")
+        off = section.transpose
+        tk.Label(
+            box, text=f"{off:+d}".replace("+0", "0"), bg=THEME["bg"],
+            fg=THEME["chord"] if off else THEME["text_muted"],
+            font=THEME["font_section"], width=3,
+        ).pack(side="left")
+        btn("+", 1).pack(side="left")
 
     def _render_line(self, line) -> None:
         """Dibuja una línea: dos textos apilados en escenario, celdas en edición."""

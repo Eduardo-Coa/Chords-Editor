@@ -5,7 +5,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from models.song import Song
-from models.transposer import transpose_song
+from models.transposer import display_song
 from ui.app import THEME
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 
@@ -174,7 +174,7 @@ class StageView:
         self._title_lbl.config(text=self._base.title, font=(family, size, "bold"))
 
     def _render(self) -> None:
-        display = self._base if self._offset == 0 else transpose_song(self._base, self._offset)
+        display = display_song(self._base, self._offset)
         self._grid.set_song(display)
         self._update_title()
         self._offset_lbl.config(text=f"{self._offset:+d}".replace("+0", "0"))
