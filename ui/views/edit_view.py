@@ -3,12 +3,13 @@
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk, messagebox, colorchooser
+from tkinter import ttk, messagebox, colorchooser, filedialog
 
 from database.db import Database
 from models.song import Song, Chord, Syllable
-from models.transposer import transpose_song, display_song
+from models.transposer import bake_transpositions, display_song
 from models.key_chords import chords_for_key
+from utils import song_io
 from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
 from ui.app import THEME
 from ui.views.song_list import SongList
@@ -98,6 +99,7 @@ class EditView(ttk.Frame):
         bar = ttk.Frame(parent, style="TFrame")
         bar.pack(fill="x", padx=10, pady=4)
 
+        self._build_file_menu(bar)
         ttk.Button(bar, text="Guardar", command=self._autosave).pack(side="left", padx=2)
         self._stage_btn = ttk.Button(bar, text="Vista Escenario", command=self._toggle_stage)
         self._stage_btn.pack(side="left", padx=2)
@@ -121,6 +123,23 @@ class EditView(ttk.Frame):
         ttk.Button(bar, text="Editar letra", command=self._edit_lyrics).pack(side="left", padx=2)
         ttk.Button(bar, text="Eliminar", style="Danger.TButton",
                    command=self._delete_current).pack(side="left", padx=2)
+
+    def _build_file_menu(self, bar: ttk.Frame) -> None:
+        """Mini-menú 'Archivo' con Importar / Exportar canción (.hymnchords)."""
+        menubtn = tk.Menubutton(
+            bar, text="Archivo ▾",
+            bg=THEME["surface2"], fg=THEME["text"],
+            activebackground=THEME["border"], activeforeground=THEME["text"],
+            relief="flat", font=THEME["font_ui"], padx=10, pady=4, cursor="hand2",
+        )
+        menu = tk.Menu(
+            menubtn, tearoff=0, bg=THEME["surface2"], fg=THEME["text"],
+            activebackground=THEME["border"], activeforeground=THEME["text"],
+        )
+        menu.add_command(label="Importar canción…", command=self._import_song)
+        menu.add_command(label="Exportar canción…", command=self._export_song)
+        menubtn["menu"] = menu
+        menubtn.pack(side="left", padx=(0, 8))
 
     def _build_content(self, parent: tk.Misc) -> None:
         """Área central que alterna entre la grilla y el editor de letra."""
@@ -291,12 +310,17 @@ class EditView(ttk.Frame):
 
     def _on_chord_click(self, syllable, widget) -> None:
         if self.transpose_offset != 0:
-            self._set_status("Vuelve al tono original (0) para editar acordes")
+            self._set_status(
+                "Vuelve a 0, o pulsa «Guardar en este tono» para editar en este tono"
+            )
             return
         # Sílaba de una sección modulada: es una copia transpuesta, no el modelo
-        # real (no se encuentra por identidad). Hay que volver el bloque a 0.
+        # real (no se encuentra por identidad). Para editarla hay que volver el
+        # bloque a 0 o fijar la modulación con «Guardar en este tono».
         if self._section_of(syllable) is None:
-            self._set_status("Vuelve este bloque a 0 para editar sus acordes")
+            self._set_status(
+                "Bloque modulado: pulsa «Guardar en este tono» para poder editarlo"
+            )
             return
         self._open_popup(syllable, widget)
 
@@ -479,16 +503,85 @@ class EditView(ttk.Frame):
         self._set_status(f"{label}: tono del bloque {off:+d}".replace("+0", "0"))
 
     def _save_in_key(self) -> None:
-        if self.song is None or self.transpose_offset == 0:
+        if self.song is None:
+            return
+        # Fijar tanto el offset global como las modulaciones por bloque: hornea lo
+        # que se ve en pantalla. Sin nada pendiente, no hay nada que guardar.
+        has_section_mod = any(s.transpose != 0 for s in self.song.sections)
+        if self.transpose_offset == 0 and not has_section_mod:
             self._set_status("No hay transposición que fijar")
             return
-        self.song = transpose_song(self.song, self.transpose_offset)
+        self.song = bake_transpositions(self.song, self.transpose_offset)
         self.transpose_offset = 0
         self._offset_lbl.config(text="0")
         self._meta_vars["key"].set(self.song.key or "")
         self._autosave()
         self._render_grid()
         self._set_status("Acordes guardados en el nuevo tono")
+
+    # ------------------------------------------------------------------
+    # Importar / Exportar canción (.hymnchords)
+    # ------------------------------------------------------------------
+
+    def _export_song(self) -> None:
+        """Exporta la canción abierta a un archivo .hymnchords (tono original)."""
+        if self.song is None:
+            self._set_status("No hay canción para exportar")
+            return
+        ext = song_io.SONG_FILE_EXTENSION
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Exportar canción",
+            defaultextension=ext,
+            initialfile=song_io.suggested_filename(self.song),
+            filetypes=[("Canción HymnChords", f"*{ext}"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            song_io.export_song(self.song, path)
+        except song_io.SongIOError as exc:
+            messagebox.showerror("Exportar canción", str(exc), parent=self)
+            return
+        self._set_status(f"Exportada: {self.song.title}")
+
+    def _import_song(self) -> None:
+        """Importa una canción desde un .hymnchords como copia nueva."""
+        ext = song_io.SONG_FILE_EXTENSION
+        path = filedialog.askopenfilename(
+            parent=self, title="Importar canción",
+            filetypes=[("Canción HymnChords", f"*{ext}"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            song = song_io.import_song(path)
+        except song_io.SongIOError as exc:
+            messagebox.showerror("Importar canción", str(exc), parent=self)
+            return
+
+        # Importar siempre crea una copia nueva: avisar si ya existe ese título.
+        if self._title_exists(song.title) and not messagebox.askyesno(
+            "Importar canción",
+            f"Ya existe una canción titulada «{song.title}».\n"
+            "¿Importar de todas formas como copia nueva?",
+            parent=self,
+        ):
+            return
+
+        song.id = None  # asegurar INSERT (no reutilizar ningún id)
+        new_id = self.db.save_song(song)
+        self.song_list.refresh()
+        self.load_song(new_id)
+        self.song_list.set_selected(new_id)
+        self._set_status(f"Importada: {song.title}")
+
+    def _title_exists(self, title: str) -> bool:
+        """True si ya hay una canción con ese título exacto (ignorando mayúsculas)."""
+        target = title.strip().casefold()
+        return any(
+            row["title"].strip().casefold() == target
+            for row in self.db.list_songs(title)
+        )
 
     # ------------------------------------------------------------------
     # Guardado y escenario

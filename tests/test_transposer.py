@@ -4,7 +4,9 @@ from __future__ import annotations
 import pytest
 
 from models.song import Song, Section, Line, Syllable, Chord
-from models.transposer import transpose_chord, transpose_song, display_song
+from models.transposer import (
+    transpose_chord, transpose_song, display_song, bake_transpositions,
+)
 
 
 def _cv(song: Song, sec: int, line: int = 0, syl: int = 0) -> str:
@@ -105,3 +107,45 @@ def test_display_song_suma_offset_global_y_de_bloque():
     assert shown.key == "Db"
     assert _cv(shown, 0) == "Db"  # C + 1
     assert _cv(shown, 1) == "Bb"  # G + 3 (tono Eb)
+
+
+def test_bake_solo_modulacion_de_bloque():
+    """Hornear con offset global 0 fija la modulación del bloque y la deja en 0."""
+    song = _song_dos_secciones()
+    song.sections[1].transpose = 2  # solo el segundo bloque +2
+
+    baked = bake_transpositions(song, 0)
+
+    assert _cv(baked, 0) == "C"           # bloque sin modular: intacto
+    assert _cv(baked, 1) == "A"           # G + 2 horneado
+    assert baked.sections[1].transpose == 0  # ya no hay modulación pendiente
+    assert baked.key == "C"               # sin offset global, el tono no cambia
+    # No es destructivo: el original conserva su acorde y su modulación
+    assert _cv(song, 1) == "G"
+    assert song.sections[1].transpose == 2
+
+
+def test_bake_combina_offset_global_y_de_bloque():
+    """Hornear suma offset global + section.transpose y resetea todo a 0."""
+    song = _song_dos_secciones()
+    song.sections[1].transpose = 2
+
+    baked = bake_transpositions(song, 1)  # global +1
+
+    assert baked.key == "Db"              # C + 1
+    assert _cv(baked, 0) == "Db"          # C + 1
+    assert _cv(baked, 1) == "Bb"          # G + 3
+    assert all(s.transpose == 0 for s in baked.sections)
+
+
+def test_bake_coincide_con_display():
+    """Lo horneado debe coincidir con lo que display_song muestra en pantalla."""
+    song = _song_dos_secciones()
+    song.sections[1].transpose = 3
+
+    shown = display_song(song, 2)
+    baked = bake_transpositions(song, 2)
+
+    assert _cv(baked, 0) == _cv(shown, 0)
+    assert _cv(baked, 1) == _cv(shown, 1)
+    assert baked.key == shown.key

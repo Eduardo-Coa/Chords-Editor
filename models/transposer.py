@@ -107,6 +107,33 @@ def transpose_song(song: Song, semitones: int) -> Song:
     return song_copy
 
 
+def bake_transpositions(song: Song, global_offset: int = 0) -> Song:
+    """
+    Devuelve una copia de la canción con la transposición «fijada» tal como se ve
+    en pantalla: aplica a cada sección un total de ``global_offset + section.transpose``
+    semitonos a sus acordes y deja todos los ``section.transpose`` en 0.
+
+    Es el equivalente persistente de :func:`display_song`: lo que el usuario ve
+    (offset global + modulación por bloque) pasa a ser el modelo real y editable.
+    Se usa al pulsar «Guardar en este tono». No muta el objeto original.
+    """
+    song_copy = copy.deepcopy(song)
+    key = song.key
+    for section in song_copy.sections:
+        total = global_offset + section.transpose
+        if total != 0:
+            for line in section.lines:
+                for syllable in line.syllables:
+                    if syllable.chord is not None:
+                        syllable.chord.value = transpose_chord(
+                            syllable.chord.value, total, key
+                        )
+        section.transpose = 0
+    if song_copy.key and global_offset != 0:
+        song_copy.key = transpose_chord(song_copy.key, global_offset, key)
+    return song_copy
+
+
 def display_song(song: Song, global_offset: int = 0) -> Song:
     """
     Devuelve la canción lista para mostrar, aplicando a cada sección un total de
