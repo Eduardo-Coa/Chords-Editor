@@ -1,12 +1,13 @@
-"""Panel lateral con la lista de canciones, buscador y botón 'Nueva'."""
+"""Panel lateral con la lista de canciones, buscador y botón 'Nueva' (CustomTkinter)."""
 
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk
+
+import customtkinter as ctk
 
 from database.db import Database
-from ui.app import THEME
+from ui.app import THEME, ctk_button_style
 
 # Ancho inicial del panel (ajustable desde el PanedWindow del edit_view)
 PANEL_WIDTH = 240
@@ -23,7 +24,7 @@ FILTERS = [
 FILTER_ALL = "Todos"
 
 
-class SongList(ttk.Frame):
+class SongList(ctk.CTkFrame):
     """Lista de canciones con buscador en vivo, botón nueva y eliminar en hover."""
 
     def __init__(
@@ -34,16 +35,18 @@ class SongList(ttk.Frame):
         on_new: Callable[[], None],
         on_delete: Callable[[int, str], None],
     ) -> None:
-        super().__init__(parent, style="Surface.TFrame", width=PANEL_WIDTH)
+        super().__init__(
+            parent, fg_color=THEME["surface"], width=PANEL_WIDTH, corner_radius=0
+        )
         self.db = db
         self._on_select = on_select
         self._on_new = on_new
         self._on_delete = on_delete
 
         self._selected_id: int | None = None
-        self._row_labels: dict[int, tk.Label] = {}  # song_id -> label del título
+        self._row_labels: dict[int, ctk.CTkLabel] = {}  # song_id -> label del título
         self._filter_vars: dict[str, tk.StringVar] = {}
-        self._filter_combos: dict[str, ttk.Combobox] = {}
+        self._filter_menus: dict[str, ctk.CTkOptionMenu] = {}
         self._refreshing = False  # evita recursión al recargar opciones
 
         self._build()
@@ -54,96 +57,55 @@ class SongList(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        """Crea el buscador, el botón 'Nueva' y el área de lista con scroll."""
+        """Crea el buscador, los filtros, el botón 'Nueva' y la lista con scroll."""
         self._search_var = tk.StringVar()
-        search_entry = tk.Entry(
-            self, textvariable=self._search_var,
-            bg=THEME["surface2"], fg=THEME["text"], insertbackground=THEME["text"],
-            relief="flat", font=THEME["font_ui"],
-        )
-        search_entry.pack(fill="x", padx=10, pady=(10, 6), ipady=4)
-        self._add_placeholder(search_entry, "Buscar...")
+        ctk.CTkEntry(
+            self, textvariable=self._search_var, placeholder_text="Buscar...",
+            fg_color=THEME["surface2"], border_width=0, text_color=THEME["text"],
+            font=THEME["font_list"],
+        ).pack(fill="x", padx=10, pady=(10, 6))
 
         # Filtros (desplegables) dirigidos por FILTERS
         for spec in FILTERS:
             field, label = spec["field"], spec["label"]
-            frame = tk.Frame(self, bg=THEME["surface"])
+            frame = ctk.CTkFrame(self, fg_color="transparent")
             frame.pack(fill="x", padx=10, pady=(0, 4))
-            tk.Label(
-                frame, text=label, bg=THEME["surface"], fg=THEME["text_muted"],
-                font=THEME["font_ui"], width=6, anchor="w",
+            ctk.CTkLabel(
+                frame, text=label, text_color=THEME["text_muted"],
+                font=THEME["font_list"], width=44, anchor="w",
             ).pack(side="left")
             var = tk.StringVar(value=FILTER_ALL)
-            combo = ttk.Combobox(
-                frame, textvariable=var, state="readonly", font=THEME["font_ui"],
+            menu = ctk.CTkOptionMenu(
+                frame, variable=var, values=[FILTER_ALL],
+                command=lambda _v: self.refresh(),  # solo dispara en selección manual
+                fg_color=THEME["surface2"], button_color=THEME["surface2"],
+                button_hover_color=THEME["border"], text_color=THEME["text"],
+                font=THEME["font_list"], dropdown_font=THEME["font_list"],
+                dropdown_fg_color=THEME["surface2"],
+                dropdown_text_color=THEME["text"], dropdown_hover_color=THEME["border"],
             )
-            combo.pack(side="left", fill="x", expand=True)
-            var.trace_add("write", lambda *_: self.refresh())
+            menu.pack(side="left", fill="x", expand=True)
             self._filter_vars[field] = var
-            self._filter_combos[field] = combo
+            self._filter_menus[field] = menu
 
             # Botón de edición (✎) para filtros editables (ej. autores)
             if spec.get("editable"):
-                tk.Label(
-                    frame, text="✎", bg=THEME["surface"], fg=THEME["accent"],
-                    cursor="hand2", font=THEME["font_ui"],
+                ctk.CTkButton(
+                    frame, text="✎", width=28,
+                    command=lambda f=field: self._open_field_editor(f),
+                    **ctk_button_style("normal", THEME["font_list"]),
                 ).pack(side="left", padx=(4, 0))
-                frame.winfo_children()[-1].bind(
-                    "<Button-1>", lambda _e, f=field: self._open_field_editor(f)
-                )
 
-        ttk.Button(
-            self, text="+  Nueva canción", style="Accent.TButton", command=self._on_new,
+        ctk.CTkButton(
+            self, text="+  Nueva canción", command=self._on_new,
+            **ctk_button_style("accent", THEME["font_list"]),
         ).pack(fill="x", padx=10, pady=(6, 8))
 
-        # Área de lista con scroll (Canvas + frame interior)
-        container = tk.Frame(self, bg=THEME["surface"])
-        container.pack(fill="both", expand=True, padx=(10, 4), pady=(0, 10))
-
-        self._canvas = tk.Canvas(container, bg=THEME["surface"], highlightthickness=0)
-        vsb = ttk.Scrollbar(container, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        self._canvas.pack(side="left", fill="both", expand=True)
-
-        self._inner = tk.Frame(self._canvas, bg=THEME["surface"])
-        self._win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
-        self._inner.bind(
-            "<Configure>",
-            lambda _e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        # Que el frame interior ocupe todo el ancho del canvas
-        self._canvas.bind(
-            "<Configure>",
-            lambda e: self._canvas.itemconfig(self._win, width=e.width),
-        )
-        self._bind_wheel(self._canvas)
+        # Área de lista con scroll nativo de CustomTkinter (reemplaza el Canvas)
+        self._scroll = ctk.CTkScrollableFrame(self, fg_color=THEME["surface"])
+        self._scroll.pack(fill="both", expand=True, padx=(6, 4), pady=(0, 10))
 
         self._search_var.trace_add("write", lambda *_: self.refresh())
-
-    def _add_placeholder(self, entry: tk.Entry, text: str) -> None:
-        """Muestra un texto guía cuando el Entry está vacío y sin foco."""
-        def on_focus_in(_: tk.Event) -> None:
-            if entry.get() == text:
-                entry.delete(0, "end")
-                entry.config(fg=THEME["text"])
-
-        def on_focus_out(_: tk.Event) -> None:
-            if not entry.get():
-                entry.insert(0, text)
-                entry.config(fg=THEME["text_muted"])
-
-        entry.insert(0, text)
-        entry.config(fg=THEME["text_muted"])
-        entry.bind("<FocusIn>", on_focus_in)
-        entry.bind("<FocusOut>", on_focus_out)
-
-    def _bind_wheel(self, widget: tk.Widget) -> None:
-        """Scroll con la rueda del mouse (corta la propagación al canvas de edición)."""
-        def on_wheel(event: tk.Event) -> str:
-            self._canvas.yview_scroll(int(-event.delta / 120), "units")
-            return "break"
-        widget.bind("<MouseWheel>", on_wheel)
 
     # ------------------------------------------------------------------
     # Filas
@@ -157,17 +119,14 @@ class SongList(ttk.Frame):
         try:
             self._reload_filter_options()
 
-            query = self._search_var.get().strip()
-            if query == "Buscar...":
-                query = ""
-
+            query = self._search_var.get().strip()  # placeholder nativo => "" si vacío
             filters = {
                 field: var.get()
                 for field, var in self._filter_vars.items()
                 if var.get() and var.get() != FILTER_ALL
             }
 
-            for child in self._inner.winfo_children():
+            for child in self._scroll.winfo_children():
                 child.destroy()
             self._row_labels.clear()
 
@@ -184,32 +143,28 @@ class SongList(ttk.Frame):
 
     def _reload_filter_options(self) -> None:
         """Repuebla los desplegables con los valores existentes (preserva selección)."""
-        for field, combo in self._filter_combos.items():
+        for field, menu in self._filter_menus.items():
             options = [FILTER_ALL] + self.db.distinct_values(field)
-            combo["values"] = options
+            menu.configure(values=options)
             if self._filter_vars[field].get() not in options:
                 self._filter_vars[field].set(FILTER_ALL)
 
     def _make_row(self, song_id: int, title: str, key: str) -> None:
         """Crea una fila clicable con botón de eliminar que aparece en hover."""
-        bg = THEME["surface"]
-        row = tk.Frame(self._inner, bg=bg, cursor="hand2")
+        row = ctk.CTkFrame(self._scroll, fg_color="transparent", corner_radius=6)
         row.pack(fill="x", padx=2, pady=1)
 
         label_text = title + (f"   ·  {key}" if key else "")
-        title_lbl = tk.Label(
-            row, text=label_text, bg=bg,
-            fg=THEME["chord"] if song_id == self._selected_id else THEME["text"],
-            anchor="w", font=THEME["font_ui"], cursor="hand2",
+        title_lbl = ctk.CTkLabel(
+            row, text=label_text, anchor="w", font=THEME["font_list"],
+            text_color=THEME["chord"] if song_id == self._selected_id else THEME["text"],
         )
-        title_lbl.pack(side="left", fill="x", expand=True, padx=(6, 2), pady=3)
-
-        del_btn = tk.Label(
-            row, text="✕", bg=bg, fg=THEME["danger"],
-            cursor="hand2", font=THEME["font_ui"],
-        )  # se muestra solo en hover
-
+        title_lbl.pack(side="left", fill="x", expand=True, padx=(8, 2), pady=3)
         self._row_labels[song_id] = title_lbl
+
+        # Label transparente: hereda el color de la fila (✕ en rojo), se muestra en hover
+        del_btn = ctk.CTkLabel(row, text="✕", text_color=THEME["danger"],
+                               font=THEME["font_list"], width=20)
 
         # Selección
         for w in (row, title_lbl):
@@ -217,28 +172,24 @@ class SongList(ttk.Frame):
         # Eliminar
         del_btn.bind("<Button-1>", lambda _e, sid=song_id, t=title: self._on_delete(sid, t))
 
-        # Hover: resaltar fila y mostrar la X
         members = (row, title_lbl, del_btn)
 
-        def show(_e=None, d=del_btn, ms=members) -> None:
-            for w in ms:
-                w.config(bg=THEME["surface2"])
-            d.pack(side="right", padx=(2, 6))
+        def show(_e=None) -> None:
+            row.configure(fg_color=THEME["surface2"])
+            del_btn.pack(side="right", padx=(2, 6))
 
-        def hide(_e=None, r=row, d=del_btn, ms=members) -> None:
-            x, y = r.winfo_pointerxy()
-            under = r.winfo_containing(x, y)
-            # Sigue dentro de la fila: no ocultar todavía
-            if under is not None and str(under).startswith(str(r)):
+        def hide(_e=None) -> None:
+            x, y = row.winfo_pointerxy()
+            under = row.winfo_containing(x, y)
+            # Sigue dentro de la fila (o de un hijo): no ocultar todavía
+            if under is not None and str(under).startswith(str(row)):
                 return
-            d.pack_forget()
-            for w in ms:
-                w.config(bg=THEME["surface"])
+            del_btn.pack_forget()
+            row.configure(fg_color="transparent")
 
         for w in members:
             w.bind("<Enter>", show)
             w.bind("<Leave>", hide)
-            self._bind_wheel(w)
 
     def _select(self, song_id: int) -> None:
         """Marca la canción seleccionada y notifica al controlador."""
@@ -249,4 +200,4 @@ class SongList(ttk.Frame):
         """Resalta visualmente la canción seleccionada (sin disparar callback)."""
         self._selected_id = song_id
         for sid, lbl in self._row_labels.items():
-            lbl.config(fg=THEME["chord"] if sid == song_id else THEME["text"])
+            lbl.configure(text_color=THEME["chord"] if sid == song_id else THEME["text"])

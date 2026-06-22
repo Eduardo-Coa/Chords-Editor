@@ -1,11 +1,19 @@
 """Acceso a la base de datos SQLite para HymnChords."""
 
 from __future__ import annotations
+import logging
 import sqlite3
+from datetime import datetime
+from pathlib import Path
 
 from database.config import DBConfig
 from models.song import Song, Section, Line, Syllable, Chord
 from models.setlist import Setlist, SetlistItem
+
+_log = logging.getLogger("hymnchords.db")
+
+# Número de copias de seguridad a conservar (rotación).
+BACKUP_KEEP = 10
 
 
 class Database:
@@ -34,6 +42,56 @@ class Database:
         if self._conn is not None:
             self._conn.close()
             self._conn = None
+
+    # ------------------------------------------------------------------
+    # Copias de seguridad
+    # ------------------------------------------------------------------
+
+    def backup(self, reason: str = "") -> Path | None:
+        """Crea una copia de seguridad de la BD en ``<carpeta de la BD>/backups/``.
+
+        Usa la API de backup de SQLite (consistente aunque la conexión esté viva).
+        Conserva solo las últimas ``BACKUP_KEEP`` copias. Devuelve la ruta creada,
+        o None si la base aún no existe o el backup falla (un backup fallido nunca
+        debe impedir la operación del usuario).
+        """
+        db_path = self._config.path
+        if not db_path.exists():
+            return None
+
+        backups_dir = db_path.parent / "backups"
+        backups_dir.mkdir(parents=True, exist_ok=True)
+
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        dest_path = backups_dir / f"hymnchords-{stamp}.db"
+        n = 1
+        while dest_path.exists():  # evita colisiones dentro del mismo segundo
+            dest_path = backups_dir / f"hymnchords-{stamp}-{n}.db"
+            n += 1
+
+        try:
+            dest = sqlite3.connect(str(dest_path))
+            try:
+                self._connect().backup(dest)
+            finally:
+                dest.close()
+        except sqlite3.Error:
+            _log.exception("fallo al crear backup (%s)", reason or "sin motivo")
+            dest_path.unlink(missing_ok=True)
+            return None
+
+        self._prune_backups(backups_dir)
+        _log.info("backup creado: %s (%s)", dest_path.name, reason or "sin motivo")
+        return dest_path
+
+    @staticmethod
+    def _prune_backups(backups_dir: Path) -> None:
+        """Conserva solo las últimas ``BACKUP_KEEP`` copias (por fecha de modificación)."""
+        backups = sorted(
+            backups_dir.glob("hymnchords-*.db"), key=lambda p: p.stat().st_mtime
+        )
+        for old in backups[:-BACKUP_KEEP]:
+            old.unlink(missing_ok=True)
 
     # ------------------------------------------------------------------
     # Inicialización del esquema
@@ -161,6 +219,7 @@ class Database:
             self._save_sections(cur, song)
             conn.commit()
         except Exception:
+            _log.exception("error al guardar canción %r (id=%s)", song.title, song.id)
             conn.rollback()
             raise
         return song.id  # type: ignore[return-value]
@@ -335,23 +394,29 @@ class Database:
         quedan sin autor (NULL).
         """
         new_value = new.strip() or None
+        self.backup("rename_author")
         conn = self._connect()
         cur = conn.cursor()
         try:
             cur.execute("UPDATE songs SET author=? WHERE author=?", (new_value, old))
             conn.commit()
+            _log.info("autor renombrado: %r -> %r", old, new_value)
         except Exception:
+            _log.exception("error al renombrar autor %r", old)
             conn.rollback()
             raise
 
     def delete_song(self, song_id: int) -> None:
         """Elimina una canción y todos sus datos relacionados."""
+        self.backup("delete_song")
         conn = self._connect()
         cur = conn.cursor()
         try:
             cur.execute("DELETE FROM songs WHERE id=?", (song_id,))
             conn.commit()
+            _log.info("canción eliminada: id=%s", song_id)
         except Exception:
+            _log.exception("error al eliminar canción id=%s", song_id)
             conn.rollback()
             raise
 
@@ -452,11 +517,14 @@ class Database:
 
     def delete_setlist(self, setlist_id: int) -> None:
         """Elimina una lista y sus referencias a canciones (las canciones quedan)."""
+        self.backup("delete_setlist")
         conn = self._connect()
         cur = conn.cursor()
         try:
             cur.execute("DELETE FROM setlists WHERE id=?", (setlist_id,))
             conn.commit()
+            _log.info("lista eliminada: id=%s", setlist_id)
         except Exception:
+            _log.exception("error al eliminar lista id=%s", setlist_id)
             conn.rollback()
             raise

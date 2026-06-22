@@ -3,7 +3,9 @@
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk, messagebox, colorchooser, filedialog
+from tkinter import messagebox, colorchooser, filedialog
+
+import customtkinter as ctk
 
 from database.db import Database
 from models.song import Song, Chord, Syllable
@@ -11,7 +13,7 @@ from models.transposer import bake_transpositions, display_song
 from models.key_chords import chords_for_key
 from utils import song_io
 from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
-from ui.app import THEME
+from ui.app import THEME, ctk_button_style
 from ui.views.song_list import SongList
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 from ui.widgets.chord_popup import ChordPopup
@@ -30,7 +32,7 @@ def _reconstruct_lyrics(song: Song) -> str:
     return "\n".join(lines)
 
 
-class EditView(ttk.Frame):
+class EditView(ctk.CTkFrame):
     """Pantalla de edición de canciones."""
 
     def __init__(
@@ -39,7 +41,7 @@ class EditView(ttk.Frame):
         db: Database,
         on_open_stage: Callable[[Song, int], None] | None = None,
     ) -> None:
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, fg_color=THEME["bg"], corner_radius=0)
         self.db = db
         self._on_open_stage = on_open_stage
 
@@ -68,7 +70,7 @@ class EditView(ttk.Frame):
         )
         paned.add(self.song_list, minsize=180, width=240, stretch="never")
 
-        right = ttk.Frame(paned, style="TFrame")
+        right = ctk.CTkFrame(paned, fg_color=THEME["bg"], corner_radius=0)
         paned.add(right, stretch="always")
 
         self._build_metadata_bar(right)
@@ -77,54 +79,64 @@ class EditView(ttk.Frame):
         self._build_status_bar(right)
 
     def _build_metadata_bar(self, parent: tk.Misc) -> None:
-        bar = ttk.Frame(parent, style="TFrame")
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
         bar.pack(fill="x", padx=10, pady=(8, 4))
 
         self._meta_vars: dict[str, tk.StringVar] = {}
-        fields = [("title", "Título", 28), ("author", "Autor", 18),
-                  ("key", "Tono", 5), ("rhythm", "Ritmo", 10), ("capo", "Capo", 4)]
+        # ancho en píxeles (ctk), aproximando los antiguos anchos en caracteres
+        fields = [("title", "Título", 180), ("author", "Autor", 120),
+                  ("key", "Tono", 50), ("rhythm", "Ritmo", 80), ("capo", "Capo", 48)]
         for name, label, width in fields:
-            ttk.Label(bar, text=label, style="Muted.TLabel").pack(side="left", padx=(6, 2))
+            ctk.CTkLabel(bar, text=label, text_color=THEME["text_muted"],
+                         font=THEME["font_list"]).pack(side="left", padx=(6, 2))
             var = tk.StringVar()
-            entry = tk.Entry(
+            entry = ctk.CTkEntry(
                 bar, textvariable=var, width=width,
-                bg=THEME["surface2"], fg=THEME["text"],
-                insertbackground=THEME["text"], relief="flat", font=THEME["font_ui"],
+                fg_color=THEME["surface2"], border_width=0,
+                text_color=THEME["text"], font=THEME["font_list"],
             )
-            entry.pack(side="left", ipady=3)
+            entry.pack(side="left")
             entry.bind("<FocusOut>", lambda _e: self._commit_metadata())
             self._meta_vars[name] = var
 
     def _build_toolbar(self, parent: tk.Misc) -> None:
-        bar = ttk.Frame(parent, style="TFrame")
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
         bar.pack(fill="x", padx=10, pady=4)
 
         self._build_file_menu(bar)
-        ttk.Button(bar, text="Guardar", command=self._autosave).pack(side="left", padx=2)
-        self._stage_btn = ttk.Button(bar, text="Vista Escenario", command=self._toggle_stage)
+        ctk.CTkButton(bar, text="Guardar", width=80, command=self._autosave,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
+        self._stage_btn = ctk.CTkButton(bar, text="Vista Escenario", width=130,
+                                        command=self._toggle_stage, **ctk_button_style("normal", THEME["font_list"]))
         self._stage_btn.pack(side="left", padx=2)
-        ttk.Button(bar, text="⛶", width=3, command=self._open_stage).pack(side="left")
-        ttk.Button(bar, text="A−", width=3,
-                   command=lambda: self._change_stage_font(-2)).pack(side="left", padx=(6, 0))
-        ttk.Button(bar, text="A+", width=3,
-                   command=lambda: self._change_stage_font(2)).pack(side="left")
-        # Selector de color de acordes (muestra el color actual)
+        ctk.CTkButton(bar, text="⛶", width=36, command=self._open_stage,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left")
+        ctk.CTkButton(bar, text="A−", width=36, command=lambda: self._change_stage_font(-2),
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=(6, 0))
+        ctk.CTkButton(bar, text="A+", width=36, command=lambda: self._change_stage_font(2),
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left")
+        # Selector de color de acordes (tk.Label: muestra el color actual como fondo)
         self._color_swatch = tk.Label(
             bar, text=" ", bg=THEME["chord"], width=2, cursor="hand2",
             relief="raised", borderwidth=1,
         )
         self._color_swatch.pack(side="left", padx=(6, 0))
         self._color_swatch.bind("<Button-1>", lambda _e: self._pick_chord_color())
-        ttk.Button(bar, text="−", width=3, command=lambda: self._transpose(-1)).pack(side="left", padx=(12, 0))
-        self._offset_lbl = ttk.Label(bar, text="0", style="TLabel", width=3, anchor="center")
+        ctk.CTkButton(bar, text="−", width=36, command=lambda: self._transpose(-1),
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=(12, 0))
+        self._offset_lbl = tk.Label(bar, text="0", bg=THEME["bg"], fg=THEME["text"],
+                                    width=3, font=THEME["font_list"])
         self._offset_lbl.pack(side="left")
-        ttk.Button(bar, text="+", width=3, command=lambda: self._transpose(1)).pack(side="left")
-        ttk.Button(bar, text="Guardar en este tono", command=self._save_in_key).pack(side="left", padx=2)
-        ttk.Button(bar, text="Editar letra", command=self._edit_lyrics).pack(side="left", padx=2)
-        ttk.Button(bar, text="Eliminar", style="Danger.TButton",
-                   command=self._delete_current).pack(side="left", padx=2)
+        ctk.CTkButton(bar, text="+", width=36, command=lambda: self._transpose(1),
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left")
+        ctk.CTkButton(bar, text="Guardar en este tono", command=self._save_in_key,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
+        ctk.CTkButton(bar, text="Editar letra", command=self._edit_lyrics,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
+        ctk.CTkButton(bar, text="Eliminar", command=self._delete_current,
+                      **ctk_button_style("danger", THEME["font_list"])).pack(side="left", padx=2)
 
-    def _build_file_menu(self, bar: ttk.Frame) -> None:
+    def _build_file_menu(self, bar: tk.Misc) -> None:
         """Mini-menú 'Archivo' con Importar / Exportar canción (.hymnchords)."""
         menubtn = tk.Menubutton(
             bar, text="Archivo ▾",
@@ -143,24 +155,14 @@ class EditView(ttk.Frame):
 
     def _build_content(self, parent: tk.Misc) -> None:
         """Área central que alterna entre la grilla y el editor de letra."""
-        self._content = ttk.Frame(parent, style="TFrame")
+        self._content = ctk.CTkFrame(parent, fg_color=THEME["bg"])
         self._content.pack(fill="both", expand=True, padx=4, pady=4)
 
-        # Canvas con scroll que contiene la grilla
-        self._canvas = tk.Canvas(self._content, bg=THEME["bg"], highlightthickness=0)
-        self._vsb = ttk.Scrollbar(self._content, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=self._vsb.set)
-
-        self._inner = tk.Frame(self._canvas, bg=THEME["bg"])
-        self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
-        self._inner.bind(
-            "<Configure>",
-            lambda _e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        self._canvas.bind_all("<MouseWheel>", self._on_mousewheel)
+        # Área con scroll nativo de ctk que contiene la grilla (chord_grid = tk puro)
+        self._scroll = ctk.CTkScrollableFrame(self._content, fg_color=THEME["bg"])
 
         self.grid_widget = ChordGrid(
-            self._inner, None, mode="edit",
+            self._scroll, None, mode="edit",
             on_chord_click=self._on_chord_click,
             on_add_left=lambda s: self._add_slot(s, before=True),
             on_add_right=lambda s: self._add_slot(s, before=False),
@@ -170,24 +172,24 @@ class EditView(ttk.Frame):
         self.grid_widget.pack(fill="both", expand=True, anchor="nw")
 
         # Editor de letra (oculto al inicio)
-        self._paste_frame = ttk.Frame(self._content, style="TFrame")
-        self._paste_text = tk.Text(
-            self._paste_frame, bg=THEME["surface"], fg=THEME["text"],
-            insertbackground=THEME["text"], relief="flat",
-            font=THEME["font_mono"], wrap="word", height=20,
+        self._paste_frame = ctk.CTkFrame(self._content, fg_color="transparent")
+        self._paste_text = ctk.CTkTextbox(
+            self._paste_frame, fg_color=THEME["surface"], text_color=THEME["text"],
+            font=(THEME["font_mono"][0], 16), wrap="word",  # mono, algo mayor para editar
         )
         self._paste_text.pack(fill="both", expand=True, padx=4, pady=4)
-        ttk.Button(
-            self._paste_frame, text="Procesar letra", style="Accent.TButton",
-            command=self._process_lyrics,
+        ctk.CTkButton(
+            self._paste_frame, text="Procesar letra", command=self._process_lyrics,
+            **ctk_button_style("accent", THEME["font_list"]),
         ).pack(pady=6)
 
         self._show_grid()
 
     def _build_status_bar(self, parent: tk.Misc) -> None:
-        bar = ttk.Frame(parent, style="TFrame")
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
         bar.pack(fill="x", side="bottom")
-        self._status = ttk.Label(bar, text="Listo", style="Muted.TLabel", anchor="w")
+        self._status = ctk.CTkLabel(bar, text="Listo", text_color=THEME["text_muted"],
+                                    font=THEME["font_list"], anchor="w")
         self._status.pack(side="left", padx=10, pady=4)
 
     # ------------------------------------------------------------------
@@ -196,21 +198,16 @@ class EditView(ttk.Frame):
 
     def _show_grid(self) -> None:
         self._paste_frame.pack_forget()
-        self._canvas.pack(side="left", fill="both", expand=True)
-        self._vsb.pack(side="right", fill="y")
+        self._scroll.pack(fill="both", expand=True)
 
     def _show_paste(self, initial_text: str = "") -> None:
-        self._canvas.pack_forget()
-        self._vsb.pack_forget()
+        self._scroll.pack_forget()
         self._paste_text.delete("1.0", "end")
         if initial_text:
             self._paste_text.insert("1.0", initial_text)
         else:
             self._paste_text.insert("1.0", "Pega la letra aquí...")
         self._paste_frame.pack(fill="both", expand=True)
-
-    def _on_mousewheel(self, event: tk.Event) -> None:
-        self._canvas.yview_scroll(int(-event.delta / 120), "units")
 
     # ------------------------------------------------------------------
     # Flujo de nueva canción / edición de letra
@@ -511,6 +508,7 @@ class EditView(ttk.Frame):
         if self.transpose_offset == 0 and not has_section_mod:
             self._set_status("No hay transposición que fijar")
             return
+        self.db.backup("save_in_key")  # respaldo antes de reescribir los acordes
         self.song = bake_transpositions(self.song, self.transpose_offset)
         self.transpose_offset = 0
         self._offset_lbl.config(text="0")
@@ -636,7 +634,7 @@ class EditView(ttk.Frame):
         """Vuelve a modo edición sin renderizar (lo hará quien llame después)."""
         self._view_mode = "edit"
         self.grid_widget.mode = "edit"
-        self._stage_btn.config(text="Vista Escenario")
+        self._stage_btn.configure(text="Vista Escenario")
 
     def _toggle_stage(self) -> None:
         """Alterna el panel derecho entre edición y vista escenario (inline)."""
@@ -671,7 +669,7 @@ class EditView(ttk.Frame):
         """Aplica el modo de vista (edit/stage) al grid y actualiza el botón."""
         self._view_mode = mode
         self.grid_widget.mode = mode  # se renderiza con _render_grid
-        self._stage_btn.config(
+        self._stage_btn.configure(
             text="Volver a editar" if mode == "stage" else "Vista Escenario"
         )
         self._render_grid()
@@ -687,4 +685,4 @@ class EditView(ttk.Frame):
             self._set_status("Vista escenario aún no disponible")
 
     def _set_status(self, msg: str) -> None:
-        self._status.config(text=msg)
+        self._status.configure(text=msg)

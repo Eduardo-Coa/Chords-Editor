@@ -1,4 +1,9 @@
-# HymnChords no requiere dependencias externas en tiempo de ejecución:
-# usa solo la librería estándar de Python (tkinter para la UI y sqlite3 para
-# la base de datos). Este archivo se conserva para la fase de empaquetado
-# (p. ej. pyinstaller) y para herramientas de desarrollo como pytest.
+# Dependencias de runtime de HymnChords.
+#
+# La UI usa CustomTkinter para la "cáscara" (ventanas, listas, barras, popups y
+# áreas con scroll). El widget chord_grid se mantiene en tkinter puro (stdlib)
+# por rendimiento. La lógica (models/, utils/) NO depende de customtkinter.
+# darkdetect lo instala customtkinter automáticamente.
+#
+# Instalar:  pip install -r requirements.txt
+customtkinter>=5.2.2

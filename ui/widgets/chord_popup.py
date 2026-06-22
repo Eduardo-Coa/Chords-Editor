@@ -5,6 +5,8 @@ from typing import Callable
 import re
 import tkinter as tk
 
+import customtkinter as ctk
+
 from ui.app import THEME
 
 # Validación suave: raíz A-G con alteración opcional y sufijo de calidad.
@@ -57,28 +59,19 @@ class ChordPopup:
         self.top.configure(bg=THEME["accent"])  # borde fino vía padding
 
         self._var = tk.StringVar(value=value)
-        self._entry = tk.Entry(
-            self.top,
-            textvariable=self._var,
-            width=6,
-            justify="center",
-            bg=THEME["surface2"],
-            fg=THEME["chord"],
-            insertbackground=THEME["chord"],
-            relief="flat",
-            font=THEME["font_mono"],
+        self._entry = ctk.CTkEntry(
+            self.top, textvariable=self._var, width=70,
+            fg_color=THEME["surface2"], text_color=THEME["chord"],
+            border_width=0, corner_radius=4, font=THEME["font_mono"],
         )
-        self._entry.pack(padx=1, pady=1, ipady=3, ipadx=2)
+        self._entry.pack(padx=1, pady=1)
 
         # Pista discreta: tono actual + recordatorio de las flechas
         if self._suggestions:
             hint = f"↑↓ {key_label}".strip()
-            tk.Label(
-                self.top,
-                text=hint,
-                bg=THEME["accent"],
-                fg=THEME["bg"],
-                font=THEME["font_section"],
+            ctk.CTkLabel(
+                self.top, text=hint, fg_color=THEME["accent"],
+                text_color=THEME["bg"], corner_radius=0, font=THEME["font_section"],
             ).pack(fill="x", pady=(0, 1))
 
         self._bind_keys()
@@ -123,9 +116,9 @@ class ChordPopup:
     def _update_validity(self) -> None:
         """Cambia el color del texto si el acorde no parece válido."""
         if is_valid_chord(self._var.get()):
-            self._entry.config(fg=THEME["chord"])
+            self._entry.configure(text_color=THEME["chord"])
         else:
-            self._entry.config(fg=THEME["danger"])
+            self._entry.configure(text_color=THEME["danger"])
 
     def _on_text_changed(self) -> None:
         """Si el usuario teclea, abandona la lista y recuerda lo escrito."""

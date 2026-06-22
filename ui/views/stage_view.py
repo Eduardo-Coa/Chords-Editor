@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 import tkinter as tk
-from tkinter import ttk
+
+import customtkinter as ctk
 
 from models.song import Song
 from models.transposer import display_song
-from ui.app import THEME
+from ui.app import THEME, ctk_button_style
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 
 # Velocidad de scroll automático: píxeles por segundo, independiente del largo
@@ -81,28 +82,27 @@ class StageView:
 
     def _build_transpose_panel(self) -> None:
         """Mini panel de transposición, oculto por defecto (tecla T)."""
-        self._panel = tk.Frame(self.top, bg=THEME["surface2"])
+        self._panel = ctk.CTkFrame(self.top, fg_color=THEME["surface2"])
         self._panel_visible = False
 
-        tk.Button(self._panel, text="−", width=3, command=lambda: self._transpose(-1),
-                  bg=THEME["surface2"], fg=THEME["text"], relief="flat",
-                  activebackground=THEME["border"], font=THEME["font_ui"]).pack(side="left", padx=2, pady=2)
-        self._offset_lbl = tk.Label(self._panel, text="0", width=4, bg=THEME["surface2"],
-                                    fg=THEME["accent"], font=THEME["font_ui"])
+        ctk.CTkButton(self._panel, text="−", width=36, command=lambda: self._transpose(-1),
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2, pady=2)
+        self._offset_lbl = ctk.CTkLabel(self._panel, text="0", width=40,
+                                        text_color=THEME["accent"], font=THEME["font_list"])
         self._offset_lbl.pack(side="left")
-        tk.Button(self._panel, text="+", width=3, command=lambda: self._transpose(1),
-                  bg=THEME["surface2"], fg=THEME["text"], relief="flat",
-                  activebackground=THEME["border"], font=THEME["font_ui"]).pack(side="left", padx=2, pady=2)
+        ctk.CTkButton(self._panel, text="+", width=36, command=lambda: self._transpose(1),
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2, pady=2)
+
+        self._make_draggable(self._panel, self._offset_lbl)
 
     def _build_controls_panel(self) -> None:
         """Panel de controles (fuente, scroll, velocidad), oculto por defecto (tecla C)."""
-        self._controls = tk.Frame(self.top, bg=THEME["surface2"])
+        self._controls = ctk.CTkFrame(self.top, fg_color=THEME["surface2"])
         self._controls_visible = False
 
-        def boton(text, cmd, w=3):
-            return tk.Button(self._controls, text=text, width=w, command=cmd,
-                             bg=THEME["surface2"], fg=THEME["text"], relief="flat",
-                             activebackground=THEME["border"], font=THEME["font_ui"])
+        def boton(text, cmd, w=36):
+            return ctk.CTkButton(self._controls, text=text, width=w, command=cmd,
+                                 **ctk_button_style("normal", THEME["font_list"]))
 
         boton("A−", lambda: self._change_font(-2)).pack(side="left", padx=2, pady=4)
         boton("A+", lambda: self._change_font(2)).pack(side="left", padx=2, pady=4)
@@ -110,25 +110,27 @@ class StageView:
         self._play_btn = boton("▶", self._toggle_scroll)
         self._play_btn.pack(side="left", padx=(12, 2), pady=4)
 
-        tk.Label(self._controls, text="Vel.", bg=THEME["surface2"],
-                 fg=THEME["text_muted"], font=THEME["font_ui"]).pack(side="left", padx=(8, 2))
+        vel_lbl = ctk.CTkLabel(self._controls, text="Vel.", text_color=THEME["text_muted"],
+                               font=THEME["font_list"])
+        vel_lbl.pack(side="left", padx=(8, 2))
         self._speed_var = tk.DoubleVar(value=5.0)
-        ttk.Scale(self._controls, from_=1, to=10, variable=self._speed_var,
-                  orient="horizontal", length=120).pack(side="left", padx=(0, 8), pady=4)
+        ctk.CTkSlider(self._controls, from_=1, to=10, variable=self._speed_var,
+                      width=120).pack(side="left", padx=(0, 8), pady=4)
 
         # Navegación entre canciones de la lista (solo si hay más de una)
-        self._nav_lbl: tk.Label | None = None
+        self._nav_lbl: ctk.CTkLabel | None = None
         if len(self._items) > 1:
             self._prev_btn = boton("«", lambda: self._goto(-1))
             self._prev_btn.pack(side="left", padx=(12, 2), pady=4)
-            self._nav_lbl = tk.Label(
-                self._controls, text="", bg=THEME["surface2"],
-                fg=THEME["accent"], font=THEME["font_ui"],
+            self._nav_lbl = ctk.CTkLabel(
+                self._controls, text="", text_color=THEME["accent"], font=THEME["font_list"],
             )
             self._nav_lbl.pack(side="left", padx=2)
-            self._next_btn = boton("»", lambda: self._goto(1), w=3)
+            self._next_btn = boton("»", lambda: self._goto(1))
             self._next_btn.pack(side="left", padx=2, pady=4)
             self._update_nav_label()
+
+        self._make_draggable(self._controls, vel_lbl)
 
     def _bind_keys(self) -> None:
         self.top.bind("<Escape>", lambda _e: self.close())
@@ -177,7 +179,7 @@ class StageView:
         display = display_song(self._base, self._offset)
         self._grid.set_song(display)
         self._update_title()
-        self._offset_lbl.config(text=f"{self._offset:+d}".replace("+0", "0"))
+        self._offset_lbl.configure(text=f"{self._offset:+d}".replace("+0", "0"))
         self.top.after_idle(self._center)
 
     def _transpose(self, delta: int) -> None:
@@ -207,7 +209,7 @@ class StageView:
     def _update_nav_label(self) -> None:
         """Actualiza el indicador 'n/total — Título' del panel de navegación."""
         if self._nav_lbl is not None:
-            self._nav_lbl.config(
+            self._nav_lbl.configure(
                 text=f"{self._index + 1}/{len(self._items)}  ·  {self._base.title}"
             )
 
@@ -217,18 +219,47 @@ class StageView:
         self._update_title()
         self.top.after_idle(self._center)
 
+    def _make_draggable(self, panel: tk.Misc, *grips: tk.Misc) -> None:
+        """Permite mover ``panel`` arrastrándolo por su fondo o por los ``grips``.
+
+        Los botones y el slider conservan su función (no se les enlaza el arrastre).
+        La posición se recuerda (``panel._pos``) para re-mostrarlo donde se dejó.
+        """
+        def start(event: tk.Event) -> None:
+            self._drag_dx = event.x_root - panel.winfo_rootx()
+            self._drag_dy = event.y_root - panel.winfo_rooty()
+
+        def move(event: tk.Event) -> None:
+            parent = panel.master
+            x = event.x_root - self._drag_dx - parent.winfo_rootx()
+            y = event.y_root - self._drag_dy - parent.winfo_rooty()
+            panel.place_configure(x=x, y=y, relx=0, rely=0, anchor="nw")
+            panel._pos = (x, y)  # type: ignore[attr-defined]
+
+        for widget in (panel, *grips):
+            widget.bind("<Button-1>", start, add="+")
+            widget.bind("<B1-Motion>", move, add="+")
+
+    def _place_panel(self, panel: tk.Misc, default: dict) -> None:
+        """Muestra el panel en su última posición arrastrada, o en la de por defecto."""
+        pos = getattr(panel, "_pos", None)
+        if pos is not None:
+            panel.place(x=pos[0], y=pos[1], anchor="nw")
+        else:
+            panel.place(**default)
+
     def _toggle_panel(self) -> None:
         if self._panel_visible:
             self._panel.place_forget()
         else:
-            self._panel.place(relx=1.0, y=10, x=-10, anchor="ne")
+            self._place_panel(self._panel, dict(relx=1.0, y=10, x=-10, anchor="ne"))
         self._panel_visible = not self._panel_visible
 
     def _toggle_controls(self) -> None:
         if self._controls_visible:
             self._controls.place_forget()
         else:
-            self._controls.place(relx=0.5, rely=1.0, y=-12, anchor="s")
+            self._place_panel(self._controls, dict(relx=0.5, rely=1.0, y=-12, anchor="s"))
         self._controls_visible = not self._controls_visible
 
     def _toggle_fullscreen(self) -> None:
@@ -241,7 +272,7 @@ class StageView:
 
     def _toggle_scroll(self) -> None:
         self._scrolling = not self._scrolling
-        self._play_btn.config(text="⏸" if self._scrolling else "▶")
+        self._play_btn.configure(text="⏸" if self._scrolling else "▶")
         if self._scrolling:
             # Sincronizar el acumulador con la posición visible actual al arrancar.
             self._scroll_frac = self._canvas.yview()[0]
@@ -256,7 +287,7 @@ class StageView:
         _, bottom = self._canvas.yview()
         if bottom >= 1.0:  # llegó al final: detener
             self._scrolling = False
-            self._play_btn.config(text="▶")
+            self._play_btn.configure(text="▶")
             return
         # Convertir píxeles/segundo a fracción de la canción para este tick, usando
         # la altura total del contenido: misma velocidad visual sin importar el largo.

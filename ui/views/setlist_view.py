@@ -1,19 +1,21 @@
-"""Vista de gestión de listas de canciones (setlists) para presentaciones."""
+"""Vista de gestión de listas de canciones (setlists) para presentaciones (CustomTkinter)."""
 
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
+
+import customtkinter as ctk
 
 from database.db import Database
 from models.setlist import Setlist, SetlistItem
 from models.transposer import transpose_chord
-from ui.app import THEME
+from ui.app import THEME, ctk_button_style
 
 PANEL_WIDTH = 240
 
 
-class SetlistView(ttk.Frame):
+class SetlistView(ctk.CTkFrame):
     """Pantalla para crear listas, ordenar canciones y lanzar la presentación."""
 
     def __init__(
@@ -22,12 +24,12 @@ class SetlistView(ttk.Frame):
         db: Database,
         on_present: Callable[[Setlist], None] | None = None,
     ) -> None:
-        super().__init__(parent, style="TFrame")
+        super().__init__(parent, fg_color=THEME["bg"], corner_radius=0)
         self.db = db
         self._on_present = on_present
         self.setlist: Setlist | None = None
         self._selected_id: int | None = None
-        self._row_labels: dict[int, tk.Label] = {}
+        self._row_labels: dict[int, ctk.CTkLabel] = {}
 
         self._build()
         self.refresh_setlists()
@@ -37,81 +39,59 @@ class SetlistView(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
+        # tk.PanedWindow: CustomTkinter no tiene panel divisible; se conserva tk con
+        # CTkFrames dentro (híbrido).
         paned = tk.PanedWindow(
             self, orient="horizontal", sashwidth=6,
             bg=THEME["border"], bd=0, sashrelief="flat",
         )
         paned.pack(fill="both", expand=True)
 
-        left = ttk.Frame(paned, style="Surface.TFrame", width=PANEL_WIDTH)
+        left = ctk.CTkFrame(paned, fg_color=THEME["surface"], width=PANEL_WIDTH,
+                            corner_radius=0)
         paned.add(left, minsize=180, width=PANEL_WIDTH, stretch="never")
         self._build_left(left)
 
-        right = ttk.Frame(paned, style="TFrame")
+        right = ctk.CTkFrame(paned, fg_color=THEME["bg"], corner_radius=0)
         paned.add(right, stretch="always")
         self._build_right(right)
 
     def _build_left(self, parent: tk.Misc) -> None:
-        ttk.Button(
-            parent, text="+  Nueva lista", style="Accent.TButton",
-            command=self._new_setlist,
+        ctk.CTkButton(
+            parent, text="+  Nueva lista", command=self._new_setlist,
+            **ctk_button_style("accent", THEME["font_list"]),
         ).pack(fill="x", padx=10, pady=(10, 8))
 
-        container = tk.Frame(parent, bg=THEME["surface"])
-        container.pack(fill="both", expand=True, padx=(10, 4), pady=(0, 10))
-        self._list_canvas = tk.Canvas(container, bg=THEME["surface"], highlightthickness=0)
-        vsb = ttk.Scrollbar(container, orient="vertical", command=self._list_canvas.yview)
-        self._list_canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        self._list_canvas.pack(side="left", fill="both", expand=True)
-        self._list_inner = tk.Frame(self._list_canvas, bg=THEME["surface"])
-        win = self._list_canvas.create_window((0, 0), window=self._list_inner, anchor="nw")
-        self._list_inner.bind(
-            "<Configure>",
-            lambda _e: self._list_canvas.configure(scrollregion=self._list_canvas.bbox("all")),
-        )
-        self._list_canvas.bind(
-            "<Configure>", lambda e: self._list_canvas.itemconfig(win, width=e.width)
-        )
+        self._list_scroll = ctk.CTkScrollableFrame(parent, fg_color=THEME["surface"])
+        self._list_scroll.pack(fill="both", expand=True, padx=(10, 4), pady=(0, 10))
 
     def _build_right(self, parent: tk.Misc) -> None:
         # Barra superior: nombre + acciones
-        bar = ttk.Frame(parent, style="TFrame")
+        bar = ctk.CTkFrame(parent, fg_color="transparent")
         bar.pack(fill="x", padx=10, pady=(10, 4))
         self._name_var = tk.StringVar()
-        self._name_entry = tk.Entry(
-            bar, textvariable=self._name_var, width=30,
-            bg=THEME["surface2"], fg=THEME["text"], insertbackground=THEME["text"],
-            relief="flat", font=THEME["font_ui"],
+        self._name_entry = ctk.CTkEntry(
+            bar, textvariable=self._name_var, width=240,
+            fg_color=THEME["surface2"], border_width=0, text_color=THEME["text"],
+            font=THEME["font_list"],
         )
-        self._name_entry.pack(side="left", ipady=4)
+        self._name_entry.pack(side="left")
         self._name_entry.bind("<FocusOut>", lambda _e: self._commit_name())
         self._name_entry.bind("<Return>", lambda _e: self._commit_name())
 
-        ttk.Button(bar, text="▶  Presentar", style="Accent.TButton",
-                   command=self._present).pack(side="left", padx=(8, 2))
-        ttk.Button(bar, text="+  Agregar canción",
-                   command=self._open_picker).pack(side="left", padx=2)
-        ttk.Button(bar, text="Eliminar lista", style="Danger.TButton",
-                   command=self._delete_current).pack(side="left", padx=2)
+        ctk.CTkButton(bar, text="▶  Presentar", command=self._present,
+                      **ctk_button_style("accent", THEME["font_list"])).pack(side="left", padx=(8, 2))
+        ctk.CTkButton(bar, text="+  Agregar canción", command=self._open_picker,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
+        ctk.CTkButton(bar, text="Eliminar lista", command=self._delete_current,
+                      **ctk_button_style("danger", THEME["font_list"])).pack(side="left", padx=2)
 
         # Área de canciones de la lista (scrollable)
-        content = ttk.Frame(parent, style="TFrame")
-        content.pack(fill="both", expand=True, padx=4, pady=4)
-        self._canvas = tk.Canvas(content, bg=THEME["bg"], highlightthickness=0)
-        vsb = ttk.Scrollbar(content, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        self._canvas.pack(side="left", fill="both", expand=True)
-        self._inner = tk.Frame(self._canvas, bg=THEME["bg"])
-        win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
-        self._inner.bind(
-            "<Configure>",
-            lambda _e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfig(win, width=e.width))
+        self._scroll = ctk.CTkScrollableFrame(parent, fg_color=THEME["bg"])
+        self._scroll.pack(fill="both", expand=True, padx=4, pady=4)
 
-        self._status = ttk.Label(parent, text="", style="Muted.TLabel", anchor="w")
+        self._status = ctk.CTkLabel(parent, text="", text_color=THEME["text_muted"],
+                                    font=THEME["font_list"], anchor="w")
         self._status.pack(fill="x", side="bottom", padx=10, pady=4)
 
     # ------------------------------------------------------------------
@@ -120,27 +100,24 @@ class SetlistView(ttk.Frame):
 
     def refresh_setlists(self) -> None:
         """Recarga el panel de listas desde la base de datos."""
-        for child in self._list_inner.winfo_children():
+        for child in self._list_scroll.winfo_children():
             child.destroy()
         self._row_labels.clear()
         for row in self.db.list_setlists():
             self._make_setlist_row(row["id"], row["name"], row["song_count"])
 
     def _make_setlist_row(self, sid: int, name: str, count: int) -> None:
-        bg = THEME["surface"]
-        row = tk.Frame(self._list_inner, bg=bg, cursor="hand2")
+        row = ctk.CTkFrame(self._list_scroll, fg_color="transparent", corner_radius=6)
         row.pack(fill="x", padx=2, pady=1)
-        text = f"{name}   ·  {count}"
-        lbl = tk.Label(
-            row, text=text, bg=bg,
-            fg=THEME["chord"] if sid == self._selected_id else THEME["text"],
-            anchor="w", font=THEME["font_ui"], cursor="hand2",
+        lbl = ctk.CTkLabel(
+            row, text=f"{name}   ·  {count}", anchor="w", font=THEME["font_list"],
+            text_color=THEME["chord"] if sid == self._selected_id else THEME["text"],
         )
-        lbl.pack(side="left", fill="x", expand=True, padx=(6, 2), pady=3)
+        lbl.pack(side="left", fill="x", expand=True, padx=(8, 2), pady=3)
         self._row_labels[sid] = lbl
 
-        del_btn = tk.Label(row, text="✕", bg=bg, fg=THEME["danger"],
-                           cursor="hand2", font=THEME["font_ui"])
+        del_btn = ctk.CTkLabel(row, text="✕", text_color=THEME["danger"],
+                               font=THEME["font_list"], width=20)
         for w in (row, lbl):
             w.bind("<Button-1>", lambda _e, i=sid: self._select_setlist(i))
         del_btn.bind("<Button-1>", lambda _e, i=sid, n=name: self._confirm_delete(i, n))
@@ -148,8 +125,7 @@ class SetlistView(ttk.Frame):
         members = (row, lbl, del_btn)
 
         def show(_e=None) -> None:
-            for w in members:
-                w.config(bg=THEME["surface2"])
+            row.configure(fg_color=THEME["surface2"])
             del_btn.pack(side="right", padx=(2, 6))
 
         def hide(_e=None) -> None:
@@ -158,8 +134,7 @@ class SetlistView(ttk.Frame):
             if under is not None and str(under).startswith(str(row)):
                 return
             del_btn.pack_forget()
-            for w in members:
-                w.config(bg=THEME["surface"])
+            row.configure(fg_color="transparent")
 
         for w in members:
             w.bind("<Enter>", show)
@@ -170,7 +145,7 @@ class SetlistView(ttk.Frame):
         self._selected_id = sid
         self._name_var.set(self.setlist.name)
         for i, lbl in self._row_labels.items():
-            lbl.config(fg=THEME["chord"] if i == sid else THEME["text"])
+            lbl.configure(text_color=THEME["chord"] if i == sid else THEME["text"])
         self._render_detail()
 
     def _new_setlist(self) -> None:
@@ -185,49 +160,46 @@ class SetlistView(ttk.Frame):
     # ------------------------------------------------------------------
 
     def _render_detail(self) -> None:
-        for child in self._inner.winfo_children():
+        for child in self._scroll.winfo_children():
             child.destroy()
         if self.setlist is None:
             return
         if not self.setlist.items:
-            tk.Label(
-                self._inner, text="Lista vacía. Pulsa «Agregar canción».",
-                bg=THEME["bg"], fg=THEME["text_muted"], font=THEME["font_ui"],
+            ctk.CTkLabel(
+                self._scroll, text="Lista vacía. Pulsa «Agregar canción».",
+                text_color=THEME["text_muted"], font=THEME["font_list"],
             ).pack(anchor="w", padx=12, pady=12)
         for i, item in enumerate(self.setlist.items):
             self._make_item_row(i, item)
         n = len(self.setlist.items)
-        self._status.config(text=f"{n} canción(es)")
+        self._status.configure(text=f"{n} canción(es)")
 
     def _make_item_row(self, index: int, item: SetlistItem) -> None:
-        row = tk.Frame(self._inner, bg=THEME["surface"])
+        row = ctk.CTkFrame(self._scroll, fg_color=THEME["surface"], corner_radius=6)
         row.pack(fill="x", padx=8, pady=2)
 
-        tk.Label(row, text=f"{index + 1}.", bg=THEME["surface"], fg=THEME["text_muted"],
-                 font=THEME["font_ui"], width=3, anchor="e").pack(side="left", padx=(6, 4))
-        tk.Label(row, text=item.title, bg=THEME["surface"], fg=THEME["text"],
-                 font=THEME["font_ui"], anchor="w").pack(side="left", fill="x", expand=True)
+        ctk.CTkLabel(row, text=f"{index + 1}.", text_color=THEME["text_muted"],
+                     font=THEME["font_list"], width=28, anchor="e").pack(side="left", padx=(6, 4))
+        ctk.CTkLabel(row, text=item.title, text_color=THEME["text"], font=THEME["font_list"],
+                     anchor="w").pack(side="left", fill="x", expand=True)
 
-        # Control de tono: [−] tono [+]
-        tone = tk.Label(row, text=self._tone_text(item), bg=THEME["surface"],
-                        fg=THEME["chord"], font=THEME["font_ui"], width=10, anchor="center")
+        tone = ctk.CTkLabel(row, text=self._tone_text(item), text_color=THEME["chord"],
+                            font=THEME["font_list"], width=80)
 
-        def btn(text: str, cmd) -> tk.Button:
-            return tk.Button(row, text=text, width=2, command=cmd,
-                             bg=THEME["surface2"], fg=THEME["text"], relief="flat",
-                             activebackground=THEME["border"], font=THEME["font_ui"])
+        def mbtn(text: str, cmd) -> ctk.CTkButton:
+            return ctk.CTkButton(row, text=text, width=28, command=cmd, **ctk_button_style("normal", THEME["font_list"]))
 
-        btn("−", lambda: self._change_transpose(index, -1)).pack(side="left", padx=(6, 0))
+        mbtn("−", lambda: self._change_transpose(index, -1)).pack(side="left", padx=(6, 0))
         tone.pack(side="left", padx=2)
-        btn("+", lambda: self._change_transpose(index, 1)).pack(side="left", padx=(0, 6))
+        mbtn("+", lambda: self._change_transpose(index, 1)).pack(side="left", padx=(0, 6))
 
-        btn("✕", lambda: self._remove_item(index)).pack(side="right", padx=(2, 6))
-        btn("↓", lambda: self._move_item(index, 1)).pack(side="right", padx=1)
-        btn("↑", lambda: self._move_item(index, -1)).pack(side="right", padx=1)
+        mbtn("✕", lambda: self._remove_item(index)).pack(side="right", padx=(2, 6))
+        mbtn("↓", lambda: self._move_item(index, 1)).pack(side="right", padx=1)
+        mbtn("↑", lambda: self._move_item(index, -1)).pack(side="right", padx=1)
 
     @staticmethod
     def _tone_text(item: SetlistItem) -> str:
-        """Texto del tono: 'Do → Re' si transpone, el tono solo, o el offset."""
+        """Texto del tono: 'Do→Re' si transpone, el tono solo, o el offset."""
         offset = item.transpose
         if item.key:
             if offset == 0:
@@ -238,8 +210,7 @@ class SetlistView(ttk.Frame):
     def _change_transpose(self, index: int, delta: int) -> None:
         if self.setlist is None:
             return
-        item = self.setlist.items[index]
-        item.transpose += delta
+        self.setlist.items[index].transpose += delta
         self._autosave()
         self._render_detail()
 
@@ -275,7 +246,7 @@ class SetlistView(ttk.Frame):
 
     def _present(self) -> None:
         if self.setlist is None or not self.setlist.items:
-            self._status.config(text="La lista está vacía")
+            self._status.configure(text="La lista está vacía")
             return
         if self._on_present is not None:
             self._on_present(self.setlist)
@@ -312,7 +283,7 @@ class SetlistView(ttk.Frame):
 
     def _open_picker(self) -> None:
         if self.setlist is None:
-            self._status.config(text="Primero crea o selecciona una lista")
+            self._status.configure(text="Primero crea o selecciona una lista")
             return
         SongPicker(self, self.db, on_pick=self._add_song)
 
@@ -329,7 +300,7 @@ class SetlistView(ttk.Frame):
         self._render_detail()
 
 
-class SongPicker(tk.Toplevel):
+class SongPicker(ctk.CTkToplevel):
     """Diálogo flotante para elegir canciones de la biblioteca y agregarlas."""
 
     def __init__(
@@ -342,129 +313,71 @@ class SongPicker(tk.Toplevel):
         self.db = db
         self._on_pick = on_pick
         self.title("Agregar canción")
-        self.configure(bg=THEME["bg"])
+        self.configure(fg_color=THEME["bg"])
         self.geometry("360x460")
         self.transient(parent.winfo_toplevel())
 
         self._search_var = tk.StringVar()
-        self._entry = tk.Entry(
-            self, textvariable=self._search_var, bg=THEME["surface2"], fg=THEME["text"],
-            insertbackground=THEME["text"], relief="flat", font=THEME["font_ui"],
-        )
-        self._entry.pack(fill="x", padx=10, pady=10, ipady=4)
+        ctk.CTkEntry(
+            self, textvariable=self._search_var,
+            placeholder_text="Escriba el nombre de la canción o el autor",
+            fg_color=THEME["surface2"], border_width=0, text_color=THEME["text"],
+            font=THEME["font_list"],
+        ).pack(fill="x", padx=10, pady=10)
         self._search_var.trace_add("write", lambda *_: self._refresh())
-        self._install_placeholder(
-            self._entry, "Escriba el nombre de la canción o el autor"
-        )
 
-        container = tk.Frame(self, bg=THEME["surface"])
-        container.pack(fill="both", expand=True, padx=10, pady=(0, 10))
-        self._canvas = tk.Canvas(container, bg=THEME["surface"], highlightthickness=0)
-        vsb = ttk.Scrollbar(container, orient="vertical", command=self._canvas.yview)
-        self._canvas.configure(yscrollcommand=vsb.set)
-        vsb.pack(side="right", fill="y")
-        self._canvas.pack(side="left", fill="both", expand=True)
-        self._inner = tk.Frame(self._canvas, bg=THEME["surface"])
-        win = self._canvas.create_window((0, 0), window=self._inner, anchor="nw")
-        self._inner.bind(
-            "<Configure>",
-            lambda _e: self._canvas.configure(scrollregion=self._canvas.bbox("all")),
-        )
-        self._canvas.bind("<Configure>", lambda e: self._canvas.itemconfig(win, width=e.width))
+        self._scroll = ctk.CTkScrollableFrame(self, fg_color=THEME["surface"])
+        self._scroll.pack(fill="both", expand=True, padx=10, pady=(0, 10))
 
-        ttk.Button(self, text="Listo", command=self.destroy).pack(pady=(0, 10))
+        ctk.CTkButton(self, text="Listo", command=self.destroy,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(pady=(0, 10))
         self.bind("<Escape>", lambda _e: self.destroy())
         self._refresh()
 
-    def _install_placeholder(self, entry: tk.Entry, text: str) -> None:
-        """Muestra un texto guía atenuado mientras el campo está vacío y sin foco."""
-        self._placeholder = text
-        self._placeholder_active = False
-
-        def show() -> None:
-            self._placeholder_active = True
-            entry.config(fg=THEME["text_muted"])
-            self._search_var.set(text)
-
-        def clear(_e=None) -> None:
-            if self._placeholder_active:
-                self._placeholder_active = False
-                entry.config(fg=THEME["text"])
-                self._search_var.set("")
-
-        def restore(_e=None) -> None:
-            if not self._search_var.get():
-                show()
-
-        entry.bind("<FocusIn>", clear)
-        entry.bind("<FocusOut>", restore)
-        show()
-
-    def _query(self) -> str:
-        """Texto de búsqueda real (cadena vacía si solo está el placeholder)."""
-        if self._placeholder_active:
-            return ""
-        return self._search_var.get().strip()
-
     def _refresh(self) -> None:
-        for child in self._inner.winfo_children():
+        for child in self._scroll.winfo_children():
             child.destroy()
-        for song in self.db.list_songs(self._query()):
-            self._make_row(
-                song["id"], song["title"], song.get("author"), song.get("key")
-            )
+        for song in self.db.list_songs(self._search_var.get().strip()):
+            self._make_row(song["id"], song["title"], song.get("author"), song.get("key"))
 
     def _make_row(
         self, song_id: int, title: str, author: str | None, key: str | None
     ) -> None:
-        bg = THEME["surface"]
-        row = tk.Frame(self._inner, bg=bg, cursor="hand2")
-        row.pack(fill="x", padx=4, pady=1)
+        row = ctk.CTkFrame(self._scroll, fg_color="transparent", corner_radius=6)
+        row.pack(fill="x", padx=2, pady=1)
 
-        title_lbl = tk.Label(row, text=title, bg=bg, fg=THEME["text"],
-                              anchor="w", font=THEME["font_ui"], cursor="hand2")
-        title_lbl.pack(side="left", padx=(6, 0), pady=2)
+        title_lbl = ctk.CTkLabel(row, text=title, anchor="w", font=THEME["font_list"])
+        title_lbl.pack(side="left", padx=(8, 0), pady=2)
 
         widgets = [row, title_lbl]
         if author:
-            author_lbl = tk.Label(row, text=f"·  {author}", bg=bg,
-                                  fg=THEME["text_muted"], anchor="w",
-                                  font=THEME["font_ui"], cursor="hand2")
+            author_lbl = ctk.CTkLabel(row, text=f"·  {author}", anchor="w",
+                                      text_color=THEME["text_muted"], font=THEME["font_list"])
             author_lbl.pack(side="left", padx=(6, 0), pady=2)
             widgets.append(author_lbl)
 
-        check_lbl = tk.Label(row, text="", bg=bg, fg=THEME["chord"],
-                             font=THEME["font_ui"], cursor="hand2")
+        check_lbl = ctk.CTkLabel(row, text="", text_color=THEME["chord"],
+                                 font=THEME["font_list"], width=16)
         check_lbl.pack(side="right", padx=(0, 4))
         if key:
-            key_lbl = tk.Label(row, text=key, bg=bg, fg=THEME["chord"],
-                               font=THEME["font_ui"], cursor="hand2")
+            key_lbl = ctk.CTkLabel(row, text=key, text_color=THEME["chord"],
+                                   font=THEME["font_list"])
             key_lbl.pack(side="right", padx=(6, 8))
             widgets.append(key_lbl)
         widgets.append(check_lbl)
 
         def pick(_e=None) -> None:
-            self._pick(song_id, title, key, widgets, check_lbl)
+            self._on_pick(song_id, title, key)
+            title_lbl.configure(text_color=THEME["chord"])
+            check_lbl.configure(text="✓")
 
         def enter(_e=None) -> None:
-            for w in widgets:
-                w.config(bg=THEME["surface2"])
+            row.configure(fg_color=THEME["surface2"])
 
         def leave(_e=None) -> None:
-            for w in widgets:
-                w.config(bg=bg)
+            row.configure(fg_color="transparent")
 
         for w in widgets:
             w.bind("<Button-1>", pick)
             w.bind("<Enter>", enter)
             w.bind("<Leave>", leave)
-
-    def _pick(
-        self, song_id: int, title: str, key: str | None,
-        widgets: list[tk.Widget], check_lbl: tk.Label,
-    ) -> None:
-        self._on_pick(song_id, title, key)
-        for w in widgets:
-            if isinstance(w, tk.Label):
-                w.config(fg=THEME["chord"])
-        check_lbl.config(text="✓")

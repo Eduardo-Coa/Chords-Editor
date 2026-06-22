@@ -3,7 +3,8 @@
 from __future__ import annotations
 import sys
 import tkinter as tk
-from tkinter import ttk
+
+import customtkinter as ctk
 
 from database.db import Database
 
@@ -35,6 +36,7 @@ THEME = {
 
     # Tipografía
     "font_ui":          ("Segoe UI", 10),
+    "font_list":        ("Segoe UI", 12),   # lista de canciones (panel izquierdo)
     "font_mono":        ("Consolas", 11),
     "font_stage":       ("Consolas", 22),
     "font_chord_stage": ("Consolas", 18),
@@ -57,12 +59,35 @@ def _apply_platform_fonts() -> None:
     if sys.platform == "darwin":  # macOS
         replacements = {
             "font_ui":          ("Helvetica Neue", 12),
+            "font_list":        ("Helvetica Neue", 14),
             "font_mono":        ("Menlo", 12),
             "font_stage":       ("Menlo", 24),
             "font_chord_stage": ("Menlo", 20),
             "font_section":     ("Helvetica Neue", 10),
         }
         THEME.update(replacements)
+
+
+# ----------------------------------------------------------------------
+# Design system CustomTkinter (paleta A: identidad teal/oro actual)
+# ----------------------------------------------------------------------
+
+def ctk_button_style(kind: str = "normal", font: tuple | None = None) -> dict:
+    """Kwargs de estilo para ``CTkButton`` según la paleta A.
+
+    Reutilizable por todas las vistas migradas para mantener un look coherente.
+    ``kind``: 'normal' (gris), 'accent' (dorado), 'danger' (rojo). ``font``
+    sobreescribe la tipografía (por defecto ``font_ui``).
+    """
+    base = {"corner_radius": 8, "border_width": 0, "font": font or THEME["font_ui"]}
+    if kind == "accent":
+        return {**base, "fg_color": THEME["accent"],
+                "hover_color": THEME["accent"], "text_color": THEME["bg"]}
+    if kind == "danger":
+        return {**base, "fg_color": THEME["surface2"],
+                "hover_color": THEME["danger"], "text_color": THEME["danger"]}
+    return {**base, "fg_color": THEME["surface2"],
+            "hover_color": THEME["border"], "text_color": THEME["text"]}
 
 
 # ----------------------------------------------------------------------
@@ -78,86 +103,37 @@ class App:
 
         _apply_platform_fonts()
         _apply_preferences()
+        self._configure_ctk()
         self._configure_root()
-        self._configure_styles()
         self._build_layout()
+
+    def _configure_ctk(self) -> None:
+        """Activa el modo oscuro de CustomTkinter (la paleta A se aplica por widget)."""
+        ctk.set_appearance_mode("dark")
 
     def _configure_root(self) -> None:
         """Aplica color de fondo y configuración base a la ventana raíz."""
         self.root.configure(bg=THEME["bg"])
-
-    def _configure_styles(self) -> None:
-        """Define los estilos ttk usados en toda la aplicación."""
-        style = ttk.Style(self.root)
-        # 'clam' permite personalizar colores en ttk (default no lo permite bien)
-        style.theme_use("clam")
-
-        style.configure(
-            "TFrame",
-            background=THEME["bg"],
-        )
-        style.configure(
-            "Surface.TFrame",
-            background=THEME["surface"],
-        )
-        style.configure(
-            "TLabel",
-            background=THEME["bg"],
-            foreground=THEME["text"],
-            font=THEME["font_ui"],
-        )
-        style.configure(
-            "Muted.TLabel",
-            background=THEME["bg"],
-            foreground=THEME["text_muted"],
-            font=THEME["font_ui"],
-        )
-        style.configure(
-            "TButton",
-            background=THEME["surface2"],
-            foreground=THEME["text"],
-            font=THEME["font_ui"],
-            borderwidth=0,
-            focuscolor=THEME["accent"],
-            padding=(10, 5),
-        )
-        style.map(
-            "TButton",
-            background=[("active", THEME["border"])],
-        )
-        style.configure(
-            "Accent.TButton",
-            background=THEME["accent"],
-            foreground=THEME["bg"],
-        )
-        style.configure(
-            "Danger.TButton",
-            background=THEME["surface2"],
-            foreground=THEME["danger"],
-        )
-        style.map(
-            "Danger.TButton",
-            background=[("active", THEME["danger"])],
-            foreground=[("active", THEME["text"])],
-        )
 
     def _build_layout(self) -> None:
         """Monta la barra de navegación y las secciones Canciones / Listas."""
         # Import diferido para evitar ciclo de importación con las vistas
         from ui.views.edit_view import EditView
 
-        nav = ttk.Frame(self.root, style="Surface.TFrame")
+        nav = ctk.CTkFrame(self.root, fg_color=THEME["surface"], corner_radius=0)
         nav.pack(fill="x")
         self._nav_buttons = {
-            "songs": ttk.Button(nav, text="Canciones",
-                                command=lambda: self._show_section("songs")),
-            "setlists": ttk.Button(nav, text="Listas",
-                                   command=lambda: self._show_section("setlists")),
+            "songs": ctk.CTkButton(
+                nav, text="Canciones", width=110,
+                command=lambda: self._show_section("songs"), **ctk_button_style("normal", THEME["font_list"])),
+            "setlists": ctk.CTkButton(
+                nav, text="Listas", width=110,
+                command=lambda: self._show_section("setlists"), **ctk_button_style("normal", THEME["font_list"])),
         }
         self._nav_buttons["songs"].pack(side="left", padx=(10, 4), pady=6)
         self._nav_buttons["setlists"].pack(side="left", padx=4, pady=6)
 
-        self.container = ttk.Frame(self.root, style="TFrame")
+        self.container = ctk.CTkFrame(self.root, fg_color=THEME["bg"], corner_radius=0)
         self.container.pack(fill="both", expand=True)
 
         self.edit_view = EditView(
@@ -189,7 +165,12 @@ class App:
 
         self._section = section
         for name, btn in self._nav_buttons.items():
-            btn.config(style="Accent.TButton" if name == section else "TButton")
+            active = name == section
+            btn.configure(
+                fg_color=THEME["accent"] if active else THEME["surface2"],
+                text_color=THEME["bg"] if active else THEME["text"],
+                hover_color=THEME["accent"] if active else THEME["border"],
+            )
 
     def _open_stage(self, song, offset: int) -> None:
         """Abre la vista escenario para una canción suelta."""

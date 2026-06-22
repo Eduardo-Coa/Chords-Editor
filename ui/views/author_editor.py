@@ -1,12 +1,20 @@
-"""Diálogo para renombrar y normalizar autores (CRUD de autores)."""
+"""Diálogo para renombrar y normalizar autores (CRUD de autores) — CustomTkinter.
+
+El ``tk.Listbox`` original no tiene equivalente en CustomTkinter, así que la lista
+de autores se reconstruye como filas seleccionables dentro de un
+``CTkScrollableFrame``. La ventana sigue siendo ``tk.Toplevel`` por la fiabilidad
+del ``grab_set`` modal.
+"""
 
 from __future__ import annotations
 from typing import Callable
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox
+
+import customtkinter as ctk
 
 from database.db import Database
-from ui.app import THEME
+from ui.app import THEME, ctk_button_style
 
 
 class AuthorEditor:
@@ -18,6 +26,8 @@ class AuthorEditor:
         self.db = db
         self._on_changed = on_changed
         self._authors: list[str] = []
+        self._selected: str | None = None
+        self._row_labels: dict[str, ctk.CTkLabel] = {}
 
         self.top = tk.Toplevel(parent)
         self.top.title("Editar autores")
@@ -34,43 +44,26 @@ class AuthorEditor:
     # ------------------------------------------------------------------
 
     def _build(self) -> None:
-        tk.Label(
-            self.top, text="Autores", bg=THEME["bg"], fg=THEME["text_muted"],
-            font=THEME["font_ui"], anchor="w",
-        ).pack(fill="x", padx=12, pady=(12, 4))
+        ctk.CTkLabel(self.top, text="Autores", text_color=THEME["text_muted"],
+                     font=THEME["font_list"], anchor="w").pack(fill="x", padx=12, pady=(12, 4))
 
-        list_frame = tk.Frame(self.top, bg=THEME["surface"])
-        list_frame.pack(fill="both", expand=True, padx=12)
-        scrollbar = ttk.Scrollbar(list_frame, orient="vertical")
-        scrollbar.pack(side="right", fill="y")
-        self._listbox = tk.Listbox(
-            list_frame, bg=THEME["surface"], fg=THEME["text"],
-            selectbackground=THEME["chord_bg"], selectforeground=THEME["chord"],
-            highlightthickness=0, borderwidth=0, activestyle="none",
-            font=THEME["font_ui"], yscrollcommand=scrollbar.set,
-        )
-        self._listbox.pack(side="left", fill="both", expand=True)
-        scrollbar.config(command=self._listbox.yview)
-        self._listbox.bind("<<ListboxSelect>>", self._on_select)
+        self._list = ctk.CTkScrollableFrame(self.top, fg_color=THEME["surface"])
+        self._list.pack(fill="both", expand=True, padx=12)
 
-        # Nuevo nombre + botón renombrar
-        tk.Label(
-            self.top, text="Nuevo nombre", bg=THEME["bg"], fg=THEME["text_muted"],
-            font=THEME["font_ui"], anchor="w",
-        ).pack(fill="x", padx=12, pady=(10, 2))
+        ctk.CTkLabel(self.top, text="Nuevo nombre", text_color=THEME["text_muted"],
+                     font=THEME["font_list"], anchor="w").pack(fill="x", padx=12, pady=(10, 2))
         self._name_var = tk.StringVar()
-        entry = tk.Entry(
-            self.top, textvariable=self._name_var, bg=THEME["surface2"],
-            fg=THEME["text"], insertbackground=THEME["text"], relief="flat",
-            font=THEME["font_ui"],
-        )
-        entry.pack(fill="x", padx=12, ipady=4)
+        ctk.CTkEntry(
+            self.top, textvariable=self._name_var, fg_color=THEME["surface2"],
+            border_width=0, text_color=THEME["text"], font=THEME["font_list"],
+        ).pack(fill="x", padx=12)
 
-        btns = tk.Frame(self.top, bg=THEME["bg"])
+        btns = ctk.CTkFrame(self.top, fg_color="transparent")
         btns.pack(fill="x", padx=12, pady=10)
-        ttk.Button(btns, text="Renombrar", style="Accent.TButton",
-                   command=self._rename).pack(side="left")
-        ttk.Button(btns, text="Cerrar", command=self.top.destroy).pack(side="right")
+        ctk.CTkButton(btns, text="Renombrar", command=self._rename,
+                      **ctk_button_style("accent", THEME["font_list"])).pack(side="left")
+        ctk.CTkButton(btns, text="Cerrar", command=self.top.destroy,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="right")
 
     # ------------------------------------------------------------------
     # Datos
@@ -78,23 +71,37 @@ class AuthorEditor:
 
     def _reload(self) -> None:
         self._authors = self.db.distinct_values("author")
-        self._listbox.delete(0, "end")
-        for author in self._authors:
-            self._listbox.insert("end", author)
+        self._selected = None
         self._name_var.set("")
+        for child in self._list.winfo_children():
+            child.destroy()
+        self._row_labels.clear()
+        for author in self._authors:
+            self._make_row(author)
 
-    def _on_select(self, _e: tk.Event) -> None:
-        sel = self._listbox.curselection()
-        if sel:
-            self._name_var.set(self._authors[sel[0]])
+    def _make_row(self, author: str) -> None:
+        """Fila seleccionable de un autor (reemplaza un item del Listbox)."""
+        row = ctk.CTkFrame(self._list, fg_color="transparent", corner_radius=6)
+        row.pack(fill="x", padx=2, pady=1)
+        lbl = ctk.CTkLabel(row, text=author, anchor="w", font=THEME["font_list"],
+                           text_color=THEME["text"])
+        lbl.pack(side="left", fill="x", expand=True, padx=(8, 2), pady=3)
+        self._row_labels[author] = lbl
+        for w in (row, lbl):
+            w.bind("<Button-1>", lambda _e, a=author: self._select_author(a))
+
+    def _select_author(self, author: str) -> None:
+        self._selected = author
+        self._name_var.set(author)
+        for a, lbl in self._row_labels.items():
+            lbl.configure(text_color=THEME["chord"] if a == author else THEME["text"])
 
     def _rename(self) -> None:
-        sel = self._listbox.curselection()
-        if not sel:
+        old = self._selected
+        if not old:
             messagebox.showinfo("Editar autores", "Selecciona un autor de la lista.",
                                 parent=self.top)
             return
-        old = self._authors[sel[0]]
         new = self._name_var.get().strip()
         if not new or new == old:
             return
