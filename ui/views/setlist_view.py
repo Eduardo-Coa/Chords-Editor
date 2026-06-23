@@ -15,6 +15,26 @@ from ui.app import THEME, ctk_button_style
 PANEL_WIDTH = 240
 
 
+def compute_drop_index(pointer_y: float, centers: list[float],
+                       dragged_index: int) -> int:
+    """Índice donde insertar la fila arrastrada, según la posición del cursor.
+
+    ``centers`` son las coordenadas verticales (centro) de cada fila, en el mismo
+    sistema que ``pointer_y`` y ordenadas de arriba a abajo. El resultado es el
+    índice en la lista **sin** la fila arrastrada: cuántas otras filas tienen su
+    centro por encima del cursor. Función pura (sin tkinter) para poder testearla.
+    """
+    target = 0
+    for i, center in enumerate(centers):
+        if i == dragged_index:
+            continue
+        if pointer_y > center:
+            target += 1
+        else:
+            break
+    return target
+
+
 class SetlistView(ctk.CTkFrame):
     """Pantalla para crear listas, ordenar canciones y lanzar la presentación."""
 
@@ -30,6 +50,11 @@ class SetlistView(ctk.CTkFrame):
         self.setlist: Setlist | None = None
         self._selected_id: int | None = None
         self._row_labels: dict[int, ctk.CTkLabel] = {}
+        # Estado de arrastre para reordenar canciones (drag & drop)
+        self._row_frames: list[ctk.CTkFrame] = []
+        self._drag_index: int | None = None
+        self._drag_line: tk.Frame | None = None
+        self._drag_ghost: tk.Toplevel | None = None
 
         self._build()
         self.refresh_setlists()
@@ -162,6 +187,10 @@ class SetlistView(ctk.CTkFrame):
     def _render_detail(self) -> None:
         for child in self._scroll.winfo_children():
             child.destroy()
+        # Reiniciar el estado de arrastre: los widgets anteriores ya no existen.
+        self._clear_drag_visuals()
+        self._row_frames = []
+        self._drag_index = None
         if self.setlist is None:
             return
         if not self.setlist.items:
@@ -178,8 +207,16 @@ class SetlistView(ctk.CTkFrame):
         row = ctk.CTkFrame(self._scroll, fg_color=THEME["surface"], corner_radius=6)
         row.pack(fill="x", padx=8, pady=2)
 
+        # Agarre para arrastrar y reordenar (drag & drop).
+        handle = ctk.CTkLabel(row, text="≡", text_color=THEME["text_muted"],
+                              font=THEME["font_list"], width=18, cursor="fleur")
+        handle.pack(side="left", padx=(6, 0))
+        handle.bind("<ButtonPress-1>", lambda e, i=index: self._drag_start(i, e))
+        handle.bind("<B1-Motion>", self._drag_motion)
+        handle.bind("<ButtonRelease-1>", self._drag_drop)
+
         ctk.CTkLabel(row, text=f"{index + 1}.", text_color=THEME["text_muted"],
-                     font=THEME["font_list"], width=28, anchor="e").pack(side="left", padx=(6, 4))
+                     font=THEME["font_list"], width=28, anchor="e").pack(side="left", padx=(2, 4))
         ctk.CTkLabel(row, text=item.title, text_color=THEME["text"], font=THEME["font_list"],
                      anchor="w").pack(side="left", fill="x", expand=True)
 
@@ -196,6 +233,91 @@ class SetlistView(ctk.CTkFrame):
         mbtn("✕", lambda: self._remove_item(index)).pack(side="right", padx=(2, 6))
         mbtn("↓", lambda: self._move_item(index, 1)).pack(side="right", padx=1)
         mbtn("↑", lambda: self._move_item(index, -1)).pack(side="right", padx=1)
+
+        self._row_frames.append(row)  # índice == posición en la lista
+
+    # ------------------------------------------------------------------
+    # Reordenar arrastrando (drag & drop)
+    # ------------------------------------------------------------------
+
+    def _drag_start(self, index: int, event: tk.Event) -> None:
+        """Comienza a arrastrar la fila ``index``: la resalta y crea el fantasma."""
+        if self.setlist is None or len(self.setlist.items) < 2:
+            return
+        self._drag_index = index
+        self._row_frames[index].configure(fg_color=THEME["surface2"])
+        self._make_ghost(self.setlist.items[index].title, event.x_root, event.y_root)
+
+    def _drag_motion(self, event: tk.Event) -> None:
+        """Mueve el fantasma con el cursor y la línea de inserción al hueco destino."""
+        if self._drag_index is None:
+            return
+        self._move_ghost(event.x_root, event.y_root)
+        centers = [f.winfo_rooty() + f.winfo_height() / 2 for f in self._row_frames]
+        target = compute_drop_index(event.y_root, centers, self._drag_index)
+        self._show_drop_line(target)
+
+    def _drag_drop(self, event: tk.Event) -> None:
+        """Suelta: reordena la lista (una sola vez) y vuelve a renderizar."""
+        if self._drag_index is None:
+            return
+        centers = [f.winfo_rooty() + f.winfo_height() / 2 for f in self._row_frames]
+        target = compute_drop_index(event.y_root, centers, self._drag_index)
+        origin = self._drag_index
+        self._drag_index = None
+        self._clear_drag_visuals()
+        if target != origin and self.setlist is not None:
+            item = self.setlist.items.pop(origin)
+            self.setlist.items.insert(target, item)
+            self._autosave()
+        self._render_detail()
+
+    def _make_ghost(self, title: str, x: int, y: int) -> None:
+        """Crea una etiqueta flotante con el título que sigue al cursor."""
+        ghost = tk.Toplevel(self)
+        ghost.overrideredirect(True)
+        ghost.attributes("-topmost", True)
+        try:
+            ghost.attributes("-alpha", 0.92)
+        except tk.TclError:
+            pass
+        tk.Label(ghost, text=title, bg=THEME["accent"], fg=THEME["bg"],
+                 font=THEME["font_list"], padx=12, pady=5).pack()
+        self._drag_ghost = ghost
+        self._move_ghost(x, y)
+
+    def _move_ghost(self, x: int, y: int) -> None:
+        """Reubica el fantasma junto al cursor (ligeramente desplazado)."""
+        if self._drag_ghost is not None:
+            self._drag_ghost.geometry(f"+{x + 14}+{y + 12}")
+
+    def _show_drop_line(self, target: int) -> None:
+        """Línea fina en el hueco ``target`` (índice sin la fila arrastrada).
+
+        Se posiciona con ``in_=fila`` (relativo a la fila de referencia), evitando
+        cálculos de coordenadas dentro del frame con scroll.
+        """
+        others = [f for i, f in enumerate(self._row_frames) if i != self._drag_index]
+        if not others:
+            return
+        above = target < len(others)
+        ref = others[target] if above else others[-1]
+        if self._drag_line is None or not self._drag_line.winfo_exists():
+            self._drag_line = tk.Frame(ref.master, bg=THEME["accent"])
+        self._drag_line.place(
+            in_=ref, relx=0.0, rely=0.0 if above else 1.0,
+            y=-2 if above else 0, relwidth=1.0, height=3,
+        )
+        self._drag_line.lift()
+
+    def _clear_drag_visuals(self) -> None:
+        """Destruye el fantasma y la línea de inserción si existen."""
+        if self._drag_ghost is not None:
+            self._drag_ghost.destroy()
+            self._drag_ghost = None
+        if self._drag_line is not None:
+            self._drag_line.destroy()
+            self._drag_line = None
 
     @staticmethod
     def _tone_text(item: SetlistItem) -> str:
