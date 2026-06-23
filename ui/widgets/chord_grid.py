@@ -6,6 +6,7 @@ import tkinter as tk
 
 from models.song import Song, Syllable
 from ui.app import THEME
+from utils.song_text import line_to_chord_lyric, SECTION_LABELS
 
 # Sílabas que son solo puntuación: no llevan espacio de acorde encima
 PUNCTUATION = set(",.;:!¡?¿…")
@@ -13,16 +14,6 @@ PUNCTUATION = set(",.;:!¡?¿…")
 # Tamaños por defecto de fuente en modo escenario (un poco más pequeños que THEME)
 STAGE_LYRIC_SIZE_DEFAULT = 12
 STAGE_CHORD_SIZE_DEFAULT = 10
-
-# Etiquetas legibles para cada tipo de sección
-SECTION_LABELS = {
-    "verse": "Estrofa",
-    "chorus": "Coro",
-    "bridge": "Puente",
-    "intro": "Intro",
-    "outro": "Final",
-}
-
 
 def _is_punctuation(text: str) -> bool:
     """Devuelve True si la sílaba es únicamente signos de puntuación (ignora espacios)."""
@@ -205,23 +196,9 @@ class ChordGrid(tk.Frame):
             tk.Frame(row, bg=THEME["bg"], height=12).pack()
             return
 
-        # Construir la fila de acordes y la de letra columna a columna.
-        # La columna donde empieza cada sílaba en la letra unida es len(lyric_str),
-        # así el acorde queda justo encima del inicio de su sílaba.
-        chord_str = ""
-        lyric_str = ""
-        for syllable in line.syllables:
-            value = syllable.chord.value if syllable.chord else ""
-            if value:
-                if len(chord_str) < len(lyric_str):
-                    chord_str += " " * (len(lyric_str) - len(chord_str))
-                elif chord_str:
-                    chord_str += " "  # evita que dos acordes se peguen
-                chord_str += value
-            lyric_str += syllable.text
-
-        chord_str = chord_str.rstrip()
-        lyric_str = lyric_str.rstrip()
+        # Fila de acordes (alineada por columnas) y fila de letra. Misma lógica que
+        # usa el copiado al portapapeles y el export (utils.song_text): fuente única.
+        chord_str, lyric_str = line_to_chord_lyric(line)
 
         # Línea sin acordes ni letra (p. ej. casillas vacías): no mostrar nada
         if not chord_str and not lyric_str:

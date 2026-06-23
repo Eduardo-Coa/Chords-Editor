@@ -12,6 +12,7 @@ from models.song import Song, Chord, Syllable
 from models.transposer import bake_transpositions, display_song
 from models.key_chords import chords_for_key
 from utils import song_io
+from utils.song_text import song_to_text
 from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
 from ui.app import THEME, ctk_button_style
 from ui.views.song_list import SongList
@@ -133,6 +134,8 @@ class EditView(ctk.CTkFrame):
                       **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
         ctk.CTkButton(bar, text="Editar letra", command=self._edit_lyrics,
                       **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
+        ctk.CTkButton(bar, text="Copiar", command=self._copy_text,
+                      **ctk_button_style("normal", THEME["font_list"])).pack(side="left", padx=2)
         ctk.CTkButton(bar, text="Eliminar", command=self._delete_current,
                       **ctk_button_style("danger", THEME["font_list"])).pack(side="left", padx=2)
 
@@ -150,6 +153,8 @@ class EditView(ctk.CTkFrame):
         )
         menu.add_command(label="Importar canción…", command=self._import_song)
         menu.add_command(label="Exportar canción…", command=self._export_song)
+        menu.add_separator()
+        menu.add_command(label="Exportar a PDF…", command=self._export_pdf)
         menubtn["menu"] = menu
         menubtn.pack(side="left", padx=(0, 8))
 
@@ -683,6 +688,40 @@ class EditView(ctk.CTkFrame):
             self._on_open_stage(self.song, self.transpose_offset)
         else:
             self._set_status("Vista escenario aún no disponible")
+
+    def _export_pdf(self) -> None:
+        """Exporta la canción a PDF (cifrado monoespaciado) en el tono visible."""
+        if self.song is None:
+            self._set_status("No hay canción para exportar")
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self, title="Exportar a PDF", defaultextension=".pdf",
+            initialfile=song_io.safe_filename(self.song.title) + ".pdf",
+            filetypes=[("PDF", "*.pdf"), ("Todos", "*.*")],
+        )
+        if not path:
+            return
+        try:
+            from utils import pdf_export  # import diferido: fpdf es pesado
+            pdf_export.song_to_pdf(
+                display_song(self.song, self.transpose_offset), path
+            )
+        except Exception as exc:
+            messagebox.showerror(
+                "Exportar a PDF", f"No se pudo crear el PDF:\n{exc}", parent=self
+            )
+            return
+        self._set_status(f"PDF exportado: {self.song.title}")
+
+    def _copy_text(self) -> None:
+        """Copia la canción (acordes sobre la letra) al portapapeles, en el tono visible."""
+        if self.song is None:
+            self._set_status("No hay canción para copiar")
+            return
+        text = song_to_text(display_song(self.song, self.transpose_offset), metadata=True)
+        self.clipboard_clear()
+        self.clipboard_append(text)
+        self._set_status("Copiado al portapapeles (acordes + letra)")
 
     def _set_status(self, msg: str) -> None:
         self._status.configure(text=msg)

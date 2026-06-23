@@ -183,7 +183,11 @@ def import_song(path: str | Path) -> Song:
     return dict_to_song(raw)
 
 
+def safe_filename(title: str) -> str:
+    """Nombre de archivo saneado (sin extensión) a partir de un título."""
+    return _INVALID_FILENAME_CHARS.sub("_", title).strip() or "cancion"
+
+
 def suggested_filename(song: Song) -> str:
     """Nombre de archivo sugerido al exportar (título saneado + extensión)."""
-    base = _INVALID_FILENAME_CHARS.sub("_", song.title).strip() or "cancion"
-    return base + SONG_FILE_EXTENSION
+    return safe_filename(song.title) + SONG_FILE_EXTENSION

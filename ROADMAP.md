@@ -109,7 +109,7 @@ buena noticia para la migración: tocar la cáscara no arriesga la lógica.
 | T10 | `stage_view` (cáscara) → ctk | 2 | M | medio | ✅ hecho — paneles + `CTkSlider`; canvas tk se conserva (centrado + auto-scroll) |
 | T11 | `chord_popup` → ctk | 2 | M | medio | ✅ hecho — CTkEntry/CTkLabel; Toplevel borderless se conserva |
 | T12 | `author_editor` → ctk | 2 | S–M | medio | ✅ hecho — Listbox → CTkScrollableFrame de filas seleccionables |
-| T13 | Exportar a PDF | 3 | L | medio | decidir dep (reportlab/fpdf2); reutiliza `transposer` |
+| T13 | Exportar a PDF | 3 | L | medio | ✅ hecho — `fpdf2` (1 clic), Courier monoespaciada embebida, auto-ajuste de fuente, claro; menú Archivo |
 | T14 | Setlist drag & drop | 4 | M–L | medio | d&d en tk es delicado |
 
 **EPIC 1 ≈ S+M+M+S+S → ~1.5–2 días. EPIC 2 ≈ M+M+L+L+M+M+S → ~1 semana.**
@@ -131,5 +131,5 @@ EPIC 0  ✅ (T0)  →  ✅ T1 (smoke)         ← compuerta de seguridad UI (lis
 EPIC 1  ✅ T2 → T3 (defer) → T4 → T5      ← valor inmediato, sin dependencia nueva
         [decidir paleta]                  ← compuerta de EPIC 2
 EPIC 2  ✅ T6 → ✅ T7 → ✅ T8 → ✅ T9 → ✅ T10 → ✅ T11 → ✅ T12  ← COMPLETA
-EPIC 3  T13 (PDF)        EPIC 4  T14 (d&d)  ← independientes, al final
+EPIC 3  ✅ T13 (PDF)     EPIC 4  T14 (d&d)  ← independientes
 ```
