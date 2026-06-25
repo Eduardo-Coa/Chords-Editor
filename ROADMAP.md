@@ -28,7 +28,7 @@ en un SQLite temporal (nunca toca la base real).
 | 3b Autoscroll con slider | ✅ Hecho (`stage_view.py:113-117`, `_auto_tick`) |
 | 3f Atajos (espacio/flechas) | ✅ Mayormente (`stage_view.py:133-149`) |
 | 3a Transposición en vivo | 🟡 Funciona por re-render; falta optimizar a in-place |
-| 3e Escenario oscuro | 🟡 Fondo `#0f0f0f`; falta toggle a negro puro |
+| 3e Escenario oscuro | ✅ Fondo `#0f0f0f` + toggle a negro puro (tecla N) |
 
 ## 3. Deuda técnica encontrada
 
@@ -100,7 +100,7 @@ buena noticia para la migración: tocar la cáscara no arriesga la lógica.
 | T1 | `test_ui_smoke.py` (red de seguridad UI) | 0→1 | S | bajo | ✅ hecho — 11 smoke tests, raíz Tk compartida |
 | T2 | Logging + backup de DB antes de escrituras | 1 | M | bajo | ✅ hecho — `backup()`+rotación en `db.py`, `utils/logging_setup.py`, 5 tests |
 | T3 | Transposición in-place en `chord_grid` | 1 | M | medio | ⏸️ **defer** — el rebuild en tk ya es ~44 ms (instantáneo); valor bajo al quedarse `chord_grid` en tk |
-| T4 | Toggle negro puro en escenario | 1 | S | bajo | pendiente (opcional) — `stage_view` ya es ctk; requiere override de color en `chord_grid` |
+| T4 | Toggle negro puro en escenario | 1 | S | bajo | ✅ hecho — tecla **N** alterna `#0f0f0f`↔`#000`; `ChordGrid.set_stage_bg()` (override propio, sin mutar THEME) + 2 tests |
 | T5 | Completar atajos faltantes | 1 | S | bajo | `stage_view` (revisar qué falta) |
 | T6 | `app.py` → ctk + design system | 2 | M | medio | ✅ hecho — paleta A, `ctk_button_style()`, nav migrada; raíz sigue tk |
 | T7 | `song_list` → ctk | 2 | M | medio | ✅ hecho — CTkScrollableFrame, CTkOptionMenu, placeholder nativo |
@@ -128,7 +128,7 @@ buena noticia para la migración: tocar la cáscara no arriesga la lógica.
 
 ```
 EPIC 0  ✅ (T0)  →  ✅ T1 (smoke)         ← compuerta de seguridad UI (lista)
-EPIC 1  ✅ T2 → T3 (defer) → T4 → T5      ← valor inmediato, sin dependencia nueva
+EPIC 1  ✅ T2 → T3 (defer) → ✅ T4 → T5    ← valor inmediato, sin dependencia nueva
         [decidir paleta]                  ← compuerta de EPIC 2
 EPIC 2  ✅ T6 → ✅ T7 → ✅ T8 → ✅ T9 → ✅ T10 → ✅ T11 → ✅ T12  ← COMPLETA
 EPIC 3  ✅ T13 (PDF)     EPIC 4  ✅ T14 (d&d)  ← independientes

@@ -111,6 +111,18 @@ def test_chord_grid_modo_escenario(root):
     root.update_idletasks()
 
 
+def test_chord_grid_override_fondo_escenario(root):
+    """set_stage_bg cambia el fondo del modo escenario sin tocar el THEME global."""
+    from ui.widgets.chord_grid import ChordGrid
+    from ui.app import THEME
+    grid = ChordGrid(root, _sample_song(), mode="stage")
+    grid.set_stage_bg("#000000")
+    root.update_idletasks()
+    assert grid.stage_bg == "#000000"
+    assert str(grid.cget("bg")) == "#000000"
+    assert THEME["bg"] != "#000000"  # el tema global queda intacto
+
+
 # --- Diálogos / Toplevels (se construyen y se cierran de inmediato) --------
 
 def test_chord_popup(root):
@@ -162,5 +174,24 @@ def test_stage_view_playlist(root):
     try:
         stage.top.withdraw()
         root.update_idletasks()
+    finally:
+        stage.close()
+
+
+def test_stage_view_toggle_negro_puro(root):
+    """La tecla N alterna a negro puro y propaga el fondo al canvas y al grid."""
+    from ui.views.stage_view import StageView
+    from ui.app import THEME
+    stage = StageView(root, _sample_song())
+    try:
+        stage.top.withdraw()
+        stage._toggle_black()
+        root.update_idletasks()
+        assert stage._pure_black is True
+        assert str(stage._canvas.cget("bg")) == "#000000"
+        assert stage._grid.stage_bg == "#000000"
+        stage._toggle_black()  # vuelve al fondo del tema
+        assert stage._pure_black is False
+        assert stage._grid.stage_bg == THEME["bg"]
     finally:
         stage.close()

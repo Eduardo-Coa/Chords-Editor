@@ -53,6 +53,9 @@ class ChordGrid(tk.Frame):
         # Tamaños de fuente del modo escenario (ajustables en vivo)
         self.stage_lyric_size = STAGE_LYRIC_SIZE_DEFAULT
         self.stage_chord_size = STAGE_CHORD_SIZE_DEFAULT
+        # Fondo del modo escenario: override propio (p. ej. negro puro) para no
+        # mutar el THEME global, que comparte el modo edición.
+        self.stage_bg = THEME["bg"]
 
         # Mapas reconstruidos en cada render() para anclar el popup y navegar
         self._chord_widgets: dict[int, tk.Widget] = {}
@@ -81,8 +84,19 @@ class ChordGrid(tk.Frame):
         if self.mode == "stage":
             self.render()
 
+    def set_stage_bg(self, color: str) -> None:
+        """Fija el color de fondo del modo escenario (p. ej. negro puro) y re-renderiza."""
+        self.stage_bg = color
+        if self.mode == "stage":
+            self.render()
+
+    def _bg(self) -> str:
+        """Color de fondo según el modo: override de escenario o el del tema."""
+        return self.stage_bg if self.mode == "stage" else THEME["bg"]
+
     def render(self) -> None:
         """Reconstruye toda la grilla desde el modelo actual."""
+        self.configure(bg=self._bg())
         for child in self.winfo_children():
             child.destroy()
         self._chord_widgets.clear()
@@ -116,11 +130,11 @@ class ChordGrid(tk.Frame):
             and self._on_section_transpose is not None
         )
         if label_text or show_control:
-            header = tk.Frame(self, bg=THEME["bg"])
+            header = tk.Frame(self, bg=self._bg())
             header.pack(fill="x", padx=12, pady=(12, 2))
             if label_text:
                 tk.Label(
-                    header, text=label_text.upper(), bg=THEME["bg"],
+                    header, text=label_text.upper(), bg=self._bg(),
                     fg=THEME["section_label"], font=THEME["font_section"], anchor="w",
                 ).pack(side="left")
             if show_control:
@@ -188,12 +202,13 @@ class ChordGrid(tk.Frame):
         la letra continua (palabras sin partir) y los acordes alineados por columna
         encima de la sílaba a la que corresponden.
         """
-        row = tk.Frame(self, bg=THEME["bg"])
+        bg = self._bg()
+        row = tk.Frame(self, bg=bg)
         row.pack(fill="x", anchor="w", padx=12, pady=0)
 
         # Línea vacía: separador visual entre estrofas
         if not line.syllables:
-            tk.Frame(row, bg=THEME["bg"], height=12).pack()
+            tk.Frame(row, bg=bg, height=12).pack()
             return
 
         # Fila de acordes (alineada por columnas) y fila de letra. Misma lógica que
@@ -209,12 +224,12 @@ class ChordGrid(tk.Frame):
         size = self.stage_lyric_size  # mismo tamaño en ambas filas → columnas alineadas
         if chord_str:
             tk.Label(
-                row, text=chord_str, bg=THEME["bg"], fg=THEME["chord"],
+                row, text=chord_str, bg=bg, fg=THEME["chord"],
                 font=(family, size, "bold"), anchor="w", justify="left",
             ).pack(side="top", anchor="w")
         if lyric_str:
             tk.Label(
-                row, text=lyric_str, bg=THEME["bg"], fg=THEME["text"],
+                row, text=lyric_str, bg=bg, fg=THEME["text"],
                 font=(family, size), anchor="w", justify="left",
             ).pack(side="top", anchor="w")
 
@@ -230,7 +245,7 @@ class ChordGrid(tk.Frame):
         if self.mode == "stage" and is_slot and not chord_value:
             return
 
-        cell = tk.Frame(parent, bg=THEME["bg"])
+        cell = tk.Frame(parent, bg=self._bg())
         # Pequeña separación antes de las ranuras de acordes de paso
         cell.pack(side="left", anchor="n", padx=(3, 0) if is_slot else 0)
 
@@ -332,12 +347,13 @@ class ChordGrid(tk.Frame):
         family = THEME["font_stage"][0]
         chord_font = (family, self.stage_chord_size, "bold")
         lyric_font = (family, self.stage_lyric_size)
+        bg = self._bg()
 
         if chord_value and not is_punct:
             tk.Label(
                 cell,
                 text=chord_value,
-                bg=THEME["bg"],
+                bg=bg,
                 fg=THEME["chord"],
                 font=chord_font,
                 anchor="w",
@@ -347,7 +363,7 @@ class ChordGrid(tk.Frame):
             tk.Label(
                 cell,
                 text=" ",
-                bg=THEME["bg"],
+                bg=bg,
                 font=chord_font,
             ).pack(side="top", anchor="w")
 
@@ -357,7 +373,7 @@ class ChordGrid(tk.Frame):
         tk.Label(
             cell,
             text=text,
-            bg=THEME["bg"],
+            bg=bg,
             fg=THEME["text"],
             font=lyric_font,
             anchor="w",

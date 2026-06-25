@@ -48,6 +48,7 @@ class StageView:
         self.top.configure(bg=THEME["bg"])
         self._fullscreen = True
         self.top.attributes("-fullscreen", True)
+        self._pure_black = False  # toggle de fondo negro puro (tecla N)
 
         self._build_canvas()
         self._build_transpose_panel()
@@ -140,6 +141,8 @@ class StageView:
         self.top.bind("<T>", lambda _e: self._toggle_panel())
         self.top.bind("<c>", lambda _e: self._toggle_controls())
         self.top.bind("<C>", lambda _e: self._toggle_controls())
+        self.top.bind("<n>", lambda _e: self._toggle_black())
+        self.top.bind("<N>", lambda _e: self._toggle_black())
         self.top.bind("<space>", lambda _e: self._toggle_scroll())
         self.top.bind("<Up>", lambda _e: self._canvas.yview_scroll(-1, "units"))
         self.top.bind("<Down>", lambda _e: self._canvas.yview_scroll(1, "units"))
@@ -265,6 +268,16 @@ class StageView:
     def _toggle_fullscreen(self) -> None:
         self._fullscreen = not self._fullscreen
         self.top.attributes("-fullscreen", self._fullscreen)
+
+    def _toggle_black(self) -> None:
+        """Alterna el fondo del escenario entre el oscuro del tema y negro puro (#000)."""
+        self._pure_black = not self._pure_black
+        bg = "#000000" if self._pure_black else THEME["bg"]
+        self.top.configure(bg=bg)
+        self._canvas.configure(bg=bg)
+        self._inner.configure(bg=bg)
+        self._title_lbl.configure(bg=bg)
+        self._grid.set_stage_bg(bg)
 
     # ------------------------------------------------------------------
     # Scroll automático
