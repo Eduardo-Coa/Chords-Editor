@@ -442,7 +442,7 @@ class SongPicker(ctk.CTkToplevel):
         self._search_var = tk.StringVar()
         ctk.CTkEntry(
             self, textvariable=self._search_var,
-            placeholder_text="Escriba el nombre de la canción o el autor",
+            placeholder_text="Escribe el nombre de la canción o el autor",
             fg_color=THEME["surface2"], border_width=0, text_color=THEME["text"],
             font=THEME["font_list"],
         ).pack(fill="x", padx=10, pady=10)

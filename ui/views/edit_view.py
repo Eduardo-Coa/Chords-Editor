@@ -16,6 +16,7 @@ from utils.song_text import song_to_text
 from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
 from ui.app import THEME, ctk_button_style
 from ui.views.song_list import SongList
+from ui.views.author_export import AuthorExportDialog
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 from ui.widgets.chord_popup import ChordPopup
 
@@ -151,8 +152,9 @@ class EditView(ctk.CTkFrame):
             menubtn, tearoff=0, bg=THEME["surface2"], fg=THEME["text"],
             activebackground=THEME["border"], activeforeground=THEME["text"],
         )
-        menu.add_command(label="Importar canción…", command=self._import_song)
+        menu.add_command(label="Importar canción o cancionero…", command=self._import_song)
         menu.add_command(label="Exportar canción…", command=self._export_song)
+        menu.add_command(label="Exportar por autor…", command=self._export_by_author)
         menu.add_separator()
         menu.add_command(label="Exportar a PDF…", command=self._export_pdf)
         menubtn["menu"] = menu
@@ -269,7 +271,7 @@ class EditView(ctk.CTkFrame):
         self._meta_vars["capo"].set(str(self.song.capo))
         self._show_grid()
         # Vista escenario por defecto al abrir una canción (editar es opt-in
-        # con el botón "Volver a editar")
+        # con el botón "Editar acordes")
         self._set_view_mode("stage")
         self._set_status(f"Cargada: {self.song.title}")
 
@@ -548,21 +550,29 @@ class EditView(ctk.CTkFrame):
         self._set_status(f"Exportada: {self.song.title}")
 
     def _import_song(self) -> None:
-        """Importa una canción desde un .hymnchords como copia nueva."""
+        """Importa desde un .hymnchords: una canción suelta o un cancionero completo."""
         ext = song_io.SONG_FILE_EXTENSION
         path = filedialog.askopenfilename(
-            parent=self, title="Importar canción",
-            filetypes=[("Canción HymnChords", f"*{ext}"), ("Todos", "*.*")],
+            parent=self, title="Importar canción o cancionero",
+            filetypes=[("HymnChords", f"*{ext}"), ("Todos", "*.*")],
         )
         if not path:
             return
         try:
-            song = song_io.import_song(path)
+            songs = song_io.load_songs(path)
         except song_io.SongIOError as exc:
-            messagebox.showerror("Importar canción", str(exc), parent=self)
+            messagebox.showerror("Importar", str(exc), parent=self)
             return
 
-        # Importar siempre crea una copia nueva: avisar si ya existe ese título.
+        if not songs:
+            messagebox.showinfo("Importar", "El archivo no contiene canciones.", parent=self)
+        elif len(songs) == 1:
+            self._import_one(songs[0])
+        else:
+            self._import_many(songs)
+
+    def _import_one(self, song: Song) -> None:
+        """Importa una única canción como copia nueva (avisa si el título ya existe)."""
         if self._title_exists(song.title) and not messagebox.askyesno(
             "Importar canción",
             f"Ya existe una canción titulada «{song.title}».\n"
@@ -570,13 +580,41 @@ class EditView(ctk.CTkFrame):
             parent=self,
         ):
             return
-
         song.id = None  # asegurar INSERT (no reutilizar ningún id)
         new_id = self.db.save_song(song)
         self.song_list.refresh()
         self.load_song(new_id)
         self.song_list.set_selected(new_id)
         self._set_status(f"Importada: {song.title}")
+
+    def _import_many(self, songs: list[Song]) -> None:
+        """Importa un cancionero: todas las canciones entran como copias nuevas."""
+        if not messagebox.askyesno(
+            "Importar cancionero",
+            f"El archivo contiene {len(songs)} canciones.\n"
+            "¿Importarlas todas como copias nuevas?",
+            parent=self,
+        ):
+            return
+        duplicates = 0
+        last_id: int | None = None
+        for song in songs:
+            if self._title_exists(song.title):
+                duplicates += 1
+            song.id = None  # asegurar INSERT
+            last_id = self.db.save_song(song)
+        self.song_list.refresh()
+        if last_id is not None:
+            self.load_song(last_id)
+            self.song_list.set_selected(last_id)
+        msg = f"Importadas {len(songs)} canciones"
+        if duplicates:
+            msg += f" ({duplicates} con título ya existente)"
+        self._set_status(msg)
+
+    def _export_by_author(self) -> None:
+        """Abre el diálogo para exportar todas las canciones de un autor (cancionero)."""
+        AuthorExportDialog(self, self.db, on_status=self._set_status)
 
     def _title_exists(self, title: str) -> bool:
         """True si ya hay una canción con ese título exacto (ignorando mayúsculas)."""
@@ -675,7 +713,7 @@ class EditView(ctk.CTkFrame):
         self._view_mode = mode
         self.grid_widget.mode = mode  # se renderiza con _render_grid
         self._stage_btn.configure(
-            text="Volver a editar" if mode == "stage" else "Vista Escenario"
+            text="Editar acordes" if mode == "stage" else "Vista Escenario"
         )
         self._render_grid()
 

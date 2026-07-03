@@ -157,6 +157,26 @@ def test_song_picker(root, db):
         picker.destroy()
 
 
+def test_author_export_dialog(root, db):
+    from ui.views.author_export import AuthorExportDialog
+    db.save_song(_sample_song())  # crea una canción con autor → hay autores
+    dialog = AuthorExportDialog(root, db, on_status=_noop)
+    try:
+        root.update_idletasks()
+    finally:
+        dialog.destroy()
+
+
+def test_author_export_dialog_sin_autores(root, db):
+    """Sin autores en la base, el diálogo construye igual (rama vacía)."""
+    from ui.views.author_export import AuthorExportDialog
+    dialog = AuthorExportDialog(root, db, on_status=_noop)
+    try:
+        root.update_idletasks()
+    finally:
+        dialog.destroy()
+
+
 def test_stage_view(root):
     from ui.views.stage_view import StageView
     stage = StageView(root, _sample_song())

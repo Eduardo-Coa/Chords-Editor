@@ -20,6 +20,12 @@ from models.song import Song, Section, Line, Syllable, Chord
 FORMAT_NAME = "hymnchords-song"
 FORMAT_VERSION = 1
 
+# Formato de "cancionero": un solo archivo que agrupa varias canciones (p. ej.
+# todas las de un autor). Comparte la extensión .hymnchords; la importación
+# distingue por el campo "format" (canción suelta vs. cancionero).
+BUNDLE_FORMAT_NAME = "hymnchords-bundle"
+BUNDLE_FORMAT_VERSION = 1
+
 # Extensión de los archivos de canción exportados.
 SONG_FILE_EXTENSION = ".hymnchords"
 
@@ -171,16 +177,73 @@ def export_song(song: Song, path: str | Path) -> None:
         raise SongIOError(f"No se pudo guardar el archivo: {exc}") from exc
 
 
-def import_song(path: str | Path) -> Song:
-    """Lee y reconstruye una canción desde un archivo ``.hymnchords``."""
+def _read_json(path: str | Path) -> object:
+    """Lee un JSON de disco traduciendo los errores de E/S a ``SongIOError``."""
     try:
         with open(path, "r", encoding="utf-8") as f:
-            raw = json.load(f)
+            return json.load(f)
     except OSError as exc:
         raise SongIOError(f"No se pudo abrir el archivo: {exc}") from exc
     except json.JSONDecodeError as exc:
         raise SongIOError("El archivo está dañado o no es un JSON válido.") from exc
-    return dict_to_song(raw)
+
+
+def import_song(path: str | Path) -> Song:
+    """Lee y reconstruye una única canción desde un ``.hymnchords``."""
+    return dict_to_song(_read_json(path))
+
+
+def load_songs(path: str | Path) -> list[Song]:
+    """Lee un archivo que puede ser una canción suelta o un cancionero (bundle).
+
+    Distingue por el campo ``format``: una canción devuelve una lista de un
+    elemento; un cancionero devuelve todas sus canciones. Todas con ``id`` en None
+    (al guardarlas entran como copias nuevas).
+    """
+    data = _read_json(path)
+    fmt = data.get("format") if isinstance(data, dict) else None
+    if fmt == BUNDLE_FORMAT_NAME:
+        return _bundle_to_songs(data)  # type: ignore[arg-type]
+    if fmt == FORMAT_NAME:
+        return [dict_to_song(data)]  # type: ignore[arg-type]
+    raise SongIOError("El archivo no es una canción ni un cancionero de HymnChords.")
+
+
+def _bundle_to_songs(data: dict) -> list[Song]:
+    """Valida el bundle y reconstruye cada canción que contiene."""
+    version = data.get("version")
+    if not isinstance(version, int) or version > BUNDLE_FORMAT_VERSION:
+        raise SongIOError(
+            f"Versión de cancionero no compatible (v{version}). "
+            "Actualiza HymnChords para abrir este archivo."
+        )
+    songs_data = data.get("songs")
+    if not isinstance(songs_data, list):
+        raise SongIOError("El cancionero no contiene canciones.")
+    return [dict_to_song(song_data) for song_data in songs_data]
+
+
+def bundle_to_dict(songs: list[Song], author: str | None = None) -> dict:
+    """Serializa varias canciones a un dict de cancionero (bundle)."""
+    return {
+        "format": BUNDLE_FORMAT_NAME,
+        "version": BUNDLE_FORMAT_VERSION,
+        "author": _opt_str(author),
+        "count": len(songs),
+        "songs": [song_to_dict(song) for song in songs],
+    }
+
+
+def export_bundle(
+    songs: list[Song], path: str | Path, author: str | None = None
+) -> None:
+    """Escribe varias canciones como un único cancionero JSON UTF-8 en ``path``."""
+    data = bundle_to_dict(songs, author)
+    try:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+    except OSError as exc:
+        raise SongIOError(f"No se pudo guardar el archivo: {exc}") from exc
 
 
 def safe_filename(title: str) -> str:
@@ -191,3 +254,8 @@ def safe_filename(title: str) -> str:
 def suggested_filename(song: Song) -> str:
     """Nombre de archivo sugerido al exportar (título saneado + extensión)."""
     return safe_filename(song.title) + SONG_FILE_EXTENSION
+
+
+def bundle_filename(author: str | None) -> str:
+    """Nombre de archivo sugerido para el cancionero de un autor."""
+    return safe_filename(author or "cancionero") + SONG_FILE_EXTENSION
