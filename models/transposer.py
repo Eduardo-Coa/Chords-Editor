@@ -2,7 +2,9 @@
 
 La transposición es *consciente del tono*: el acorde resultante se deletrea con
 bemoles o sostenidos según la tonalidad de destino (en Fa el IV es "Bb", en Mi
-es "A#"). Sin un tono de contexto, por defecto usa sostenidos.
+es "A#"). Sin tono de contexto —o en tonos neutros (Do mayor / La menor, que
+mezclan bemoles y sostenidos)— se conserva el estilo del acorde de entrada, de
+modo que un "Bb" no se convierte en "A#".
 """
 
 from __future__ import annotations
@@ -47,6 +49,14 @@ def _key_prefers_flats(pitch: int, is_minor: bool) -> bool:
     return pitch in (_MINOR_FLAT_PITCHES if is_minor else _MAJOR_FLAT_PITCHES)
 
 
+# Tonos sin armadura: Do mayor (pitch 0) y La menor (pitch 9). No tienen bemoles
+# ni sostenidos propios y mezclan ambos (bVII = Bb, pero V/V = F#), así que no se
+# fuerza un estilo: se respeta la ortografía del acorde de entrada.
+def _key_is_neutral(pitch: int, is_minor: bool) -> bool:
+    """True si el tono no tiene armadura (Do mayor / La menor)."""
+    return pitch == (9 if is_minor else 0)
+
+
 def transpose_chord(chord: str, semitones: int, key: str | None = None) -> str:
     """
     Transpone un acorde por el número de semitonos indicado.
@@ -55,25 +65,30 @@ def transpose_chord(chord: str, semitones: int, key: str | None = None) -> str:
     ``key`` (el tono ORIGEN), el resultado se deletrea según el tono de destino
     (origen + semitonos): bemoles para tonos de bemoles, sostenidos para el resto.
     Ejemplo: transpose_chord("A", 1, key="E") → "Bb"  (Mi+1 = Fa, tono de bemoles)
-    """
-    if semitones == 0:
-        return chord
 
+    Con ``semitones == 0`` NO es un no-op: re-deletrea según el tono, de modo que un
+    "A#" guardado en Fa se corrige a "Bb". Sin ``key`` (sin contexto), conserva el
+    estilo del acorde de entrada: un "Bb" sigue en bemoles y un "A#" en sostenidos
+    (antes se forzaban siempre sostenidos, y así un "Bb" se convertía en "A#").
+    """
     match = _ROOT_PATTERN.match(chord)
     if not match:
         return chord
 
-    root, suffix = match.group(1), match.group(2)
-    root = FLAT_MAP.get(root, root)  # normalizar bemoles a su índice sostenido
+    root_raw, suffix = match.group(1), match.group(2)
+    root = FLAT_MAP.get(root_raw, root_raw)  # normalizar bemoles a su índice sostenido
     if root not in SHARP_SCALE:
         return chord
 
     new_index = (SHARP_SCALE.index(root) + semitones) % 12
 
-    use_flats = False
     parsed = _parse_key_pitch(key) if key else None
-    if parsed is not None:
-        target_pitch = (parsed[0] + semitones) % 12
+    target_pitch = (parsed[0] + semitones) % 12 if parsed is not None else None
+    if parsed is None or _key_is_neutral(target_pitch, parsed[1]):
+        # Sin tono, o tono neutro (Do mayor / La menor): conservar el estilo del
+        # acorde de entrada (un "Bb" sigue en bemoles; un "A#" en sostenidos).
+        use_flats = "b" in root_raw
+    else:
         use_flats = _key_prefers_flats(target_pitch, parsed[1])
 
     scale = FLAT_SCALE if use_flats else SHARP_SCALE
@@ -104,6 +119,24 @@ def transpose_song(song: Song, semitones: int) -> Song:
     if song_copy.key:
         song_copy.key = transpose_chord(song_copy.key, semitones, key)
 
+    return song_copy
+
+
+def respell_to_key(song: Song) -> Song:
+    """Devuelve una copia con cada acorde re-deletreado según ``song.key``.
+
+    No cambia la altura de los acordes, solo su ortografía (bemol/sostenido) para
+    que coincida con el tono: en Fa, un "A#" guardado pasa a "Bb". Si la canción no
+    tiene tono, conserva el estilo de cada acorde. No muta el original. Útil para
+    normalizar canciones importadas/pegadas con la ortografía «equivocada».
+    """
+    song_copy = copy.deepcopy(song)
+    key = song_copy.key
+    for section in song_copy.sections:
+        for line in section.lines:
+            for syllable in line.syllables:
+                if syllable.chord is not None:
+                    syllable.chord.value = transpose_chord(syllable.chord.value, 0, key)
     return song_copy
 
 

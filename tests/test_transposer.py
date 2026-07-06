@@ -6,6 +6,7 @@ import pytest
 from models.song import Song, Section, Line, Syllable, Chord
 from models.transposer import (
     transpose_chord, transpose_song, display_song, bake_transpositions,
+    respell_to_key,
 )
 
 
@@ -73,6 +74,80 @@ def test_transpose_song_no_muta_original():
 ])
 def test_transpose_chord_consciente_del_tono(chord, semitones, key, expected):
     assert transpose_chord(chord, semitones, key) == expected
+
+
+# --- Ortografía enarmónica: los casos del bug "SiB quedó como A#" ------------
+
+@pytest.mark.parametrize("chord, semitones, key, expected", [
+    # El bug reportado: pasar de Fa# a Fa (tono de bemoles) → el IV es Bb, no A#
+    ("B", -1, "F#", "Bb"),
+    ("A#", -1, "F#", "A"),     # A#7 en Fa# baja a A en Fa (no queda A#)
+    # Offset 0 ahora SÍ re-deletrea según el tono (antes devolvía tal cual)
+    ("A#", 0, "F", "Bb"),      # un "A#" guardado en Fa se corrige a "Bb"
+    ("Bb", 0, "F", "Bb"),      # ya correcto: se queda igual
+    ("Bb", 0, "E", "A#"),      # en Mi (sostenidos) el pitch 10 es A#
+    # Tonos neutros (Do mayor / La menor): se respeta el acorde de entrada, porque
+    # en Do el bVII correcto es Bb (¡no A#!) — el caso de "Grande es Jehová".
+    ("Bb", 0, "C", "Bb"),      # NO tocar: Bb es correcto en Do
+    ("A#", 0, "C", "A#"),      # en Do se respeta el estilo de entrada
+    ("Bb", 12, "C", "Bb"),     # octava en Do: sigue siendo Bb
+    ("Bb", 0, "Am", "Bb"),     # La menor también es neutro
+    # Sin tono: se conserva el estilo del acorde de entrada (no fuerza sostenidos)
+    ("Bb", 3, None, "Db"),     # Bb + 3 = Db, sigue en bemoles
+    ("A#", 3, None, "C#"),     # A# + 3 = C#, sigue en sostenidos
+    ("Bb", 0, None, "Bb"),     # sin tono y sin mover: se conserva
+])
+def test_transpose_chord_enarmonia(chord, semitones, key, expected):
+    assert transpose_chord(chord, semitones, key) == expected
+
+
+def test_respell_to_key_corrige_sostenido_en_tono_de_bemoles():
+    """En Fa, un acorde guardado como A# se re-deletrea a Bb sin cambiar la altura."""
+    song = Song(id=None, title="T", key="F")
+    sec = Section(id=None, position=0, type="verse", label=None)
+    line = Line(id=None, position=0)
+    line.syllables.append(
+        Syllable(id=None, position=0, text="a", chord=Chord(id=None, value="A#"))
+    )
+    line.syllables.append(
+        Syllable(id=None, position=1, text="b", chord=Chord(id=None, value="C"))
+    )
+    sec.lines.append(line)
+    song.sections.append(sec)
+
+    fixed = respell_to_key(song)
+
+    assert _cv(fixed, 0, syl=0) == "Bb"   # corregido
+    assert _cv(fixed, 0, syl=1) == "C"    # intacto
+    assert _cv(song, 0, syl=0) == "A#"    # no muta el original
+
+
+def test_respell_to_key_respeta_tono_neutro():
+    """En Do, respell_to_key NO cambia un Bb a A# (Bb es el bVII correcto)."""
+    song = Song(id=None, title="Grande es Jehová", key="C")
+    sec = Section(id=None, position=0, type="verse", label=None)
+    line = Line(id=None, position=0)
+    line.syllables.append(
+        Syllable(id=None, position=0, text="a", chord=Chord(id=None, value="Bb"))
+    )
+    sec.lines.append(line)
+    song.sections.append(sec)
+
+    assert _cv(respell_to_key(song), 0) == "Bb"  # se respeta, no se corrompe
+
+
+def test_respell_to_key_sin_tono_conserva_estilo():
+    """Sin tono, respell_to_key no fuerza un estilo: deja el acorde como está."""
+    song = Song(id=None, title="T", key=None)
+    sec = Section(id=None, position=0, type="verse", label=None)
+    line = Line(id=None, position=0)
+    line.syllables.append(
+        Syllable(id=None, position=0, text="a", chord=Chord(id=None, value="Bb"))
+    )
+    sec.lines.append(line)
+    song.sections.append(sec)
+
+    assert _cv(respell_to_key(song), 0) == "Bb"
 
 
 def test_display_song_sin_offsets_devuelve_el_modelo_real():
