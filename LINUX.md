@@ -38,16 +38,23 @@ cada mejora futura habría que copiarla a mano para siempre.
 
 ## Antes de empezar (esto lo hace Eduardo, el dueño del repo)
 
-⚠️ **Importante:** el archivo `assets/Ilahi-iconAPP.png` existe en la carpeta
-pero **no está subido a git** (solo está `icon.ico`). Sin ese PNG el ícono en
-Linux no va a funcionar.
+**1. Mergear el trabajo a `develop`.** Todo el trabajo estaba en `dev_dcoa37`
+(mi rama personal). Antes de que empieces, hago un Pull Request dentro de mi
+propio repo: `base: develop` ← `compare: dev_dcoa37`, y lo mergeo. A partir de
+ahí, **`develop` es la rama compartida** desde la que vas a trabajar vos —
+`dev_dcoa37` queda como mi rama personal, no la toques.
 
-Eduardo tiene que subirlo antes de que empieces:
+**2. Subir el ícono.** El archivo `assets/Ilahi-iconAPP.png` existe en mi
+carpeta pero **no está subido a git** (solo está `icon.ico`). Sin ese PNG el
+ícono en Linux no va a funcionar. Lo subo directo a `develop`, después de
+mergear lo anterior:
 
 ```bash
+git checkout develop
+git pull origin develop
 git add assets/Ilahi-iconAPP.png
 git commit -m "Agrega el PNG del icono (necesario para Linux)"
-git push
+git push origin develop
 ```
 
 ---
@@ -89,24 +96,116 @@ Vas a trabajar sobre una **copia enlazada** del repo de Eduardo (un *fork*), no
 sobre una copia suelta. El fork mantiene el vínculo con el original, que es lo
 que después te permite mandarle tus cambios de vuelta con un botón.
 
-1. Entrá al repositorio de Eduardo en GitHub.
-2. Arriba a la derecha, clic en **Fork**. Eso crea una copia en tu cuenta.
-3. En **tu** fork, clic en el botón verde **Code** y copiá la URL.
-4. En la terminal:
+> **¿Hay que crear una carpeta a mano antes?** No. El comando para descargar el
+> código (`git clone`, más abajo) crea la carpeta él solo, con el nombre del
+> proyecto. Lo único que elegís vos es **en qué carpeta más grande** vivir (por
+> ejemplo tu Escritorio o tu carpeta Home) — eso se hace con `cd` antes de clonar.
 
-```bash
-git clone <PEGÁ-ACÁ-LA-URL-DE-TU-FORK>
-cd "Aplicacion Acordes"
+### 2.1 — Tener cuenta de GitHub
+
+Si no tenés una, creála gratis en **github.com** (botón *Sign up*). Es la misma
+cuenta con la que vas a hacer todo lo que sigue.
+
+### 2.2 — Entrar al repositorio de Eduardo
+
+Eduardo te va a pasar este link:
+
+```
+https://github.com/Eduardo-Coa/Chords-Editor
 ```
 
-> Si ya creaste un repositorio vacío por tu cuenta, **no lo uses**: borralo y
-> hacé el fork. Un repo suelto no puede mandar cambios de vuelta.
+Abrilo en el navegador, **con tu cuenta ya iniciada**.
 
-Creá una rama para tu trabajo (así no tocás la principal):
+### 2.3 — Hacer tu Fork
+
+Arriba a la derecha de la página vas a ver un botón que dice **Fork**. Hacé
+clic ahí (podés dejar las opciones por defecto y confirmar).
+
+Esto crea una **copia del repositorio dentro de tu propia cuenta**. Vas a
+terminar en una página con una URL parecida a esta (con tu usuario, no el de
+Eduardo):
+
+```
+https://github.com/TU-USUARIO/Chords-Editor
+```
+
+**A partir de acá trabajás sobre ESA página (la tuya), no sobre la de Eduardo.**
+Guardate esa URL: es la que vas a usar en el paso siguiente.
+
+> Si ya habías creado un repositorio vacío por tu cuenta antes de esta guía,
+> **no lo uses**: borralo y hacé el fork. Un repo suelto (sin el vínculo del
+> fork) no puede mandarle los cambios de vuelta a Eduardo con un Pull Request.
+
+### 2.4 — Copiar la URL para descargar
+
+Ya parado en **tu** fork (`github.com/TU-USUARIO/Chords-Editor`), buscá el
+botón verde que dice **Code**, hacé clic, y copiá la URL que aparece bajo
+**HTTPS** (con el ícono de copiar al lado).
+
+### 2.5 — Elegir dónde va a vivir el proyecto
+
+Abrí la terminal y movete a la carpeta donde querés que aparezca el proyecto.
+Por ejemplo, tu Escritorio:
+
+```bash
+cd ~/Escritorio
+```
+
+(en algunos sistemas en inglés es `cd ~/Desktop`; si no sabés cuál es, hacé
+`cd ~` para ir a tu carpeta personal y descargarlo ahí).
+
+### 2.6 — Descargar el código (clonar)
+
+Ahora sí, el comando que **crea la carpeta automáticamente**:
+
+```bash
+git clone <PEGÁ-ACÁ-LA-URL-QUE-COPIASTE-EN-2.4>
+```
+
+Esto va a crear una carpeta nueva llamada `Chords-Editor` (el nombre del
+repositorio) con todo el código adentro. Entrá a esa carpeta:
+
+```bash
+cd Chords-Editor
+```
+
+> ⚠️ **Importante — leer esto antes de seguir.** El repositorio tiene tres
+> ramas: `main`, `develop` y `dev_dcoa37`. `main` es casi un cascarón vacío
+> (un solo archivo) y `dev_dcoa37` es la rama personal de Eduardo — ninguna
+> de las dos es para vos. **Trabajá siempre desde `develop`**, que es donde
+> Eduardo dejó el proyecto completo. Cuando clonás, `git` te deja parado en
+> `main` por defecto. Si seguís de largo sin hacer el paso 2.7, no vas a
+> encontrar la mayoría de los archivos que mencionamos más abajo.
+
+### 2.7 — Pararte sobre el código real y crear tu rama de trabajo
+
+Primero, movete a la rama donde está todo el trabajo:
+
+```bash
+git checkout develop
+```
+
+Ahora sí, creá tu rama de trabajo **a partir de esta**:
 
 ```bash
 git checkout -b linux
 ```
+
+Esto crea una rama nueva llamada `linux`, partiendo de `develop` (no de
+`main` ni de la personal de Eduardo), y te para sobre ella. Trabajar en una
+rama aparte es lo que te permite mandar tus cambios prolijos con un Pull
+Request al final (Paso 7).
+
+Confirmá que quedaste en el lugar correcto:
+
+```bash
+git branch
+```
+
+Debe mostrar `linux` con un asterisco (`*`) al lado, y en la carpeta ya deberías
+ver `models/`, `ui/`, `database/`, `utils/`, `tests/`, etc. (no solo `main.py`).
+
+✅ **En este punto ya tenés el código real en tu máquina.** Seguí con el Paso 3.
 
 ---
 
@@ -308,8 +407,12 @@ Después:
 
 1. Entrá a tu fork en GitHub.
 2. Va a aparecer un cartel que dice **Compare & pull request**. Clic ahí.
-3. Escribí brevemente qué cambiaste y en qué distribución lo probaste.
-4. Clic en **Create pull request**.
+3. ⚠️ **Muy importante:** arriba de la página vas a ver dos menús desplegables
+   que dicen algo como `base: main` ← `compare: linux`. Cambiá **`base`** de
+   `main` a **`develop`**. Si dejás `main`, GitHub va a mostrar un diff
+   gigante con TODO el trabajo previo de Eduardo, no solo tus cambios de Linux.
+4. Escribí brevemente qué cambiaste y en qué distribución lo probaste.
+5. Clic en **Create pull request**.
 
 Eduardo lo revisa y lo integra. A partir de ahí queda **un solo proyecto** que
 funciona en los dos sistemas.
