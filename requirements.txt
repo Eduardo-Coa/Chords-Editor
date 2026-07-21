@@ -1,0 +1,17 @@
+# Dependencias de runtime de HymnChords.
+#
+# - customtkinter: la "cáscara" de la UI (ventanas, listas, barras, scroll).
+#   chord_grid se mantiene en tkinter puro (stdlib) por rendimiento.
+# - fpdf2: exportar canciones a PDF (cifrado monoespaciado, fuente embebida).
+#   Arrastra pillow y fonttools — por eso el .exe crece ~30 MB; se aceptó a
+#   cambio de la exportación a PDF de un clic.
+# La lógica (models/, utils/ salvo el export) no depende de estas librerías.
+#
+# Versiones FIJAS (==) a propósito: son las probadas y con las que se empaqueta el
+# .exe para distribuir. Así una build desde un .venv nuevo es reproducible y no
+# arrastra un salto de versión sin probar (p. ej. customtkinter 6.x). Al subirlas,
+# probar (pytest) y regenerar el .exe con ./build.ps1.
+#
+# Instalar:  pip install -r requirements.txt
+customtkinter==5.2.2
+fpdf2==2.8.7

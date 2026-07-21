@@ -1,0 +1,20 @@
+# Documentación e instrucciones locales de agentes
+CLAUDE.md
+
+#Entornos virtuales
+.venv
+.env
+.vscode
+
+pyrefly.toml
+
+# Archivos generados de Python
+__pycache__/
+*.pyc
+
+# Preferencias personales de la app (color de acordes, etc.)
+preferences.json
+
+# Artefactos de empaquetado (PyInstaller). El .spec SÍ se versiona; assets/icon.ico también.
+build/
+dist/

@@ -1,0 +1,4 @@
+# Herramientas para empaquetar HymnChords como .exe (no necesarias para usar la app).
+#   pip install -r requirements-build.txt
+pyinstaller
+pillow        # solo para regenerar assets/icon.ico con tools/make_icon.py
