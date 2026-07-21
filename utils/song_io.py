@@ -52,6 +52,7 @@ def song_to_dict(song: Song) -> dict:
         "title": song.title,
         "author": song.author,
         "key": song.key,
+        "original_key": song.original_key,
         "rhythm": song.rhythm,
         "capo": song.capo,
         "notes": song.notes,
@@ -105,6 +106,7 @@ def dict_to_song(data: dict) -> Song:
         title=title.strip(),
         author=_opt_str(data.get("author")),
         key=_opt_str(data.get("key")),
+        original_key=_opt_str(data.get("original_key")),   # opcional en archivos viejos
         rhythm=_opt_str(data.get("rhythm")),
         capo=_as_int(data.get("capo"), default=0),
         notes=_opt_str(data.get("notes")),

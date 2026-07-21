@@ -70,7 +70,16 @@ def transpose_chord(chord: str, semitones: int, key: str | None = None) -> str:
     "A#" guardado en Fa se corrige a "Bb". Sin ``key`` (sin contexto), conserva el
     estilo del acorde de entrada: un "Bb" sigue en bemoles y un "A#" en sostenidos
     (antes se forzaban siempre sostenidos, y así un "Bb" se convertía en "A#").
+
+    Los acordes con bajo (slash, p. ej. "G/F#") transponen las DOS partes: el acorde
+    y la nota del bajo, cada una según el tono de destino ("G/F#" +2 → "A/G#").
     """
+    # Acorde con bajo: transponer el acorde y la nota del bajo por separado.
+    if "/" in chord:
+        main, _, bass = chord.partition("/")
+        return (transpose_chord(main, semitones, key) + "/"
+                + transpose_chord(bass, semitones, key))
+
     match = _ROOT_PATTERN.match(chord)
     if not match:
         return chord

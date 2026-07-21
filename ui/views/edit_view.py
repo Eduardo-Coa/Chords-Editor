@@ -12,8 +12,9 @@ from models.song import Song, Chord, Syllable
 from models.transposer import bake_transpositions, display_song
 from models.key_chords import chords_for_key
 from utils import song_io
-from utils.song_text import song_to_text
-from utils.lyrics_parser import parse_lyrics, merge_lyrics, is_chord_line
+from utils.song_text import song_to_text, SECTION_LABELS
+from utils.lyrics_parser import (parse_lyrics, merge_lyrics, is_chord_line,
+                                 prepend_intro, INTRO_LABEL)
 from ui.app import THEME, ctk_button_style
 from ui.views.song_list import SongList
 from ui.views.author_export import AuthorExportDialog
@@ -21,17 +22,54 @@ from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 from ui.widgets.chord_popup import ChordPopup
 
 
+def _chord_row_for_edit(line) -> tuple[str, str]:
+    """(fila_de_acordes, fila_de_letra) para la caja editable: acordes alineados por
+    columna encima de la letra, SIN insertar guiones en la letra (a diferencia de
+    ``line_to_chord_lyric``, que sí lo hace para pantalla/PDF). Así la letra editable
+    queda limpia y, al reparsear, cada acorde vuelve a caer sobre su sílaba."""
+    chord_str = ""
+    lyric_str = ""
+    for syl in line.syllables:
+        value = syl.chord.value if syl.chord else ""
+        if value:
+            if len(chord_str) < len(lyric_str):
+                chord_str += " " * (len(lyric_str) - len(chord_str))
+            elif chord_str:
+                chord_str += " "  # separación mínima entre dos acordes
+            chord_str += value
+        lyric_str += syl.text
+    return chord_str.rstrip(), lyric_str.rstrip()
+
+
 def _reconstruct_lyrics(song: Song) -> str:
-    """Reconstruye el texto plano de la letra (con encabezados [Sección])."""
+    """Reconstruye el texto plano de la letra (con encabezados [Sección]).
+
+    La «Introducción» prependida no se incluye (son casillas; ``merge_lyrics`` la
+    conserva aparte). Los interludios sí aparecen como ``[Interludio]``. Las líneas
+    de casillas con acordes se muestran como una secuencia con guiones (``G - Bm``).
+    Las líneas de letra con acordes traen una fila de acordes alineada encima
+    (estilo Cifra Club): así los acordes viajan en el texto y no se pierden al
+    editar una línea, y además se pueden editar a mano.
+    """
     lines: list[str] = []
     for section in song.sections:
-        if section.label:
-            lines.append(f"[{section.label}]")
+        if section.type == "intro" and section.label == INTRO_LABEL:
+            continue
+        label = section.label or SECTION_LABELS.get(section.type, "")
+        if label:
+            lines.append(f"[{label}]")
         for line in section.lines:
             if is_chord_line(line):
-                continue  # las líneas de acordes no son texto editable
-            lines.append("".join(s.text for s in line.syllables).strip())
-    return "\n".join(lines)
+                # casillas/interludio → secuencia con guiones (se mantiene igual)
+                lines.append(" - ".join(s.chord.value for s in line.syllables if s.chord))
+            else:
+                # línea de letra: si tiene acordes, su fila de acordes va encima
+                chord_row, lyric_row = _chord_row_for_edit(line)
+                if chord_row:
+                    lines.append(chord_row)
+                lines.append(lyric_row)
+        lines.append("")
+    return "\n".join(lines).strip()
 
 
 class EditView(ctk.CTkFrame):
@@ -87,7 +125,8 @@ class EditView(ctk.CTkFrame):
         self._meta_vars: dict[str, tk.StringVar] = {}
         # ancho en píxeles (ctk), aproximando los antiguos anchos en caracteres
         fields = [("title", "Título", 180), ("author", "Autor", 120),
-                  ("key", "Tono", 50), ("rhythm", "Ritmo", 80), ("capo", "Capo", 48)]
+                  ("key", "Tono", 50), ("original_key", "Tono orig.", 60),
+                  ("rhythm", "Ritmo", 80), ("capo", "Capo", 48)]
         for name, label, width in fields:
             ctk.CTkLabel(bar, text=label, text_color=THEME["text_muted"],
                          font=THEME["font_list"]).pack(side="left", padx=(6, 2))
@@ -248,6 +287,7 @@ class EditView(ctk.CTkFrame):
             self.song = merge_lyrics(self.song, text)
         else:
             self.song = parse_lyrics(text, title=title)
+            prepend_intro(self.song)   # toda canción nueva empieza con «Introducción»
 
         self._apply_metadata_to_song()
         self.transpose_offset = 0
@@ -267,6 +307,7 @@ class EditView(ctk.CTkFrame):
         self._meta_vars["title"].set(self.song.title)
         self._meta_vars["author"].set(self.song.author or "")
         self._meta_vars["key"].set(self.song.key or "")
+        self._meta_vars["original_key"].set(self.song.original_key or "")
         self._meta_vars["rhythm"].set(self.song.rhythm or "")
         self._meta_vars["capo"].set(str(self.song.capo))
         self._show_grid()
@@ -281,6 +322,7 @@ class EditView(ctk.CTkFrame):
         self.song.title = self._meta_vars["title"].get().strip() or "Sin título"
         self.song.author = self._meta_vars["author"].get().strip() or None
         self.song.key = self._meta_vars["key"].get().strip() or None
+        self.song.original_key = self._meta_vars["original_key"].get().strip() or None
         self.song.rhythm = self._meta_vars["rhythm"].get().strip() or None
         try:
             self.song.capo = int(self._meta_vars["capo"].get())

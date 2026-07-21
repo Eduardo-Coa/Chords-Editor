@@ -101,3 +101,27 @@ def test_song_to_text_conserva_acentos():
     sec.lines.append(_line([("Ñan", "C"), ("dú", None)]))
     song.sections.append(sec)
     assert "Ñandú" in song_to_text(song)
+
+
+# ---------------------------------------------------------------------------
+# Guiones automáticos cuando dos sílabas seguidas tienen acordes largos
+# ---------------------------------------------------------------------------
+
+def test_acordes_anchos_seguidos_insertan_guiones():
+    # «G#m7» sobre «par» empuja «tir» con guiones para que «C#7» caiga sobre él
+    chords, lyric = line_to_chord_lyric(_line([("par", "G#m7"), ("tir", "C#7")]))
+    assert lyric == "par--tir"
+    assert chords == "G#m7 C#7"
+    assert lyric[chords.index("C#7")] == "t"
+
+
+def test_acordes_cortos_seguidos_sin_guiones():
+    chords, lyric = line_to_chord_lyric(_line([("par", "A"), ("tir", "E")]))
+    assert lyric == "partir"
+    assert lyric[chords.index("E")] == "t"
+
+
+def test_linea_de_casillas_no_genera_guiones():
+    # Una línea de solo acordes (casillas sin letra) mantiene la fila de letra vacía
+    chords, lyric = line_to_chord_lyric(_line([("", "G"), ("", "Bm"), ("", "A")]))
+    assert lyric == ""

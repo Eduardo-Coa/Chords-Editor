@@ -224,3 +224,26 @@ def test_bake_coincide_con_display():
     assert _cv(baked, 0) == _cv(shown, 0)
     assert _cv(baked, 1) == _cv(shown, 1)
     assert baked.key == shown.key
+
+
+# ---------------------------------------------------------------------------
+# Acordes con bajo (slash): transponen las dos partes
+# ---------------------------------------------------------------------------
+
+def test_slash_transpone_acorde_y_bajo():
+    assert transpose_chord("G/F#", 2) == "A/G#"
+    assert transpose_chord("G/F#", -2) == "F/E"
+    assert transpose_chord("G/B", 1) == "G#/C"      # el bajo cruza la octava
+
+
+def test_slash_conserva_calidad_del_acorde():
+    assert transpose_chord("Am7/G", 2) == "Bm7/A"
+
+
+def test_slash_deletrea_ambas_partes_segun_el_tono():
+    # Re +1 = Mib (tono de bemoles): acorde y bajo en bemoles
+    assert transpose_chord("D/F#", 1, key="D") == "Eb/G"
+
+
+def test_slash_respell_sin_cambiar_altura():
+    assert transpose_chord("C/E", 0) == "C/E"

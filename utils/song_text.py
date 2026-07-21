@@ -25,16 +25,28 @@ def line_to_chord_lyric(line: Line) -> tuple[str, str]:
 
     Cada acorde queda justo encima del inicio de su sílaba: la columna donde
     empieza una sílaba en la letra unida es ``len(lyric_str)``.
+
+    Cuando dos sílabas seguidas tienen acorde y el primero es más ancho que su
+    sílaba (p. ej. «G#m7» sobre «par»), el siguiente acorde se saldría de su sílaba;
+    para que encaje se empuja la sílaba siguiente a la derecha rellenando la letra
+    con guiones (queda «par--tir»). Los guiones se ponen solos, solo cuando hacen
+    falta: con acordes cortos (A, E) no se agrega ninguno.
     """
     chord_str = ""
     lyric_str = ""
     for syllable in line.syllables:
         value = syllable.chord.value if syllable.chord else ""
         if value:
-            if len(chord_str) < len(lyric_str):
-                chord_str += " " * (len(lyric_str) - len(chord_str))
-            elif chord_str:
-                chord_str += " "  # evita que dos acordes se peguen
+            # El acorde y su sílaba deben empezar en la misma columna, dejando ≥1
+            # hueco tras el acorde anterior. Si esa columna queda más allá de la letra
+            # actual, y esta sílaba tiene letra real, se rellena con guiones para que
+            # el acorde caiga sobre su sílaba (queda «par--tir»). Las casillas vacías
+            # (intro/interludio) no se rellenan: su fila de letra sigue en blanco.
+            gap = 1 if (chord_str and not chord_str.endswith(" ")) else 0
+            col = max(len(lyric_str), len(chord_str) + gap)
+            if col > len(lyric_str) and syllable.text.strip():
+                lyric_str += "-" * (col - len(lyric_str))
+            chord_str += " " * (col - len(chord_str))
             chord_str += value
         lyric_str += syllable.text
     return chord_str.rstrip(), lyric_str.rstrip()

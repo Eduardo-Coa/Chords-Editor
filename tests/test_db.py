@@ -136,3 +136,57 @@ def test_update_existing_song(db):
     assert loaded.title == "Título actualizado"
     # No se duplicó: sigue habiendo una sola canción
     assert len(db.list_songs()) == 1
+
+
+# ---------------------------------------------------------------------------
+# Tono original (original_key)
+# ---------------------------------------------------------------------------
+
+def test_save_and_load_preserves_original_key(db):
+    song = _sample_song()
+    song.key = "G"
+    song.original_key = "Ab"          # se toca en Sol, original en Lab
+    sid = db.save_song(song)
+    loaded = db.load_song(sid)
+    assert loaded.key == "G"
+    assert loaded.original_key == "Ab"
+
+
+def test_original_key_por_defecto_es_none(db):
+    sid = db.save_song(_sample_song())
+    assert db.load_song(sid).original_key is None
+
+
+def test_migracion_agrega_original_key_a_bd_vieja(tmp_path):
+    """Una BD sin la columna ``original_key`` se migra sin perder datos."""
+    import sqlite3
+    from database.config import DBConfig
+    from database.db import Database
+
+    path = tmp_path / "vieja.db"
+    # Esquema ANTIGUO de songs (sin original_key)
+    conn = sqlite3.connect(str(path))
+    conn.execute("""
+        CREATE TABLE songs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            title TEXT NOT NULL, author TEXT, `key` TEXT,
+            rhythm TEXT, capo INTEGER DEFAULT 0, notes TEXT,
+            created_at TEXT, updated_at TEXT
+        )
+    """)
+    conn.execute("INSERT INTO songs (title, `key`) VALUES ('Vieja', 'C')")
+    conn.commit()
+    conn.close()
+
+    # init_schema debe añadir la columna con ALTER TABLE
+    database = Database(DBConfig(path=path))
+    database.init_schema()
+    cur = database._connect().execute("PRAGMA table_info(songs)")
+    columnas = [row[1] for row in cur.fetchall()]
+    assert "original_key" in columnas
+    # y se puede guardar/leer una canción con tono original en la BD migrada
+    song = _sample_song()
+    song.original_key = "Bb"
+    sid = database.save_song(song)
+    assert database.load_song(sid).original_key == "Bb"
+    database.close()

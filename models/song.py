@@ -52,7 +52,11 @@ class Song:
     id: int | None
     title: str
     author: str | None = None
+    # `key` = círculo armónico con el que se toca (guía las sugerencias de acordes).
+    # `original_key` = tono original de la canción (informativo). Pueden diferir:
+    # p. ej. original La♭ pero se toca en Sol con capo en el 1er traste.
     key: str | None = None
+    original_key: str | None = None
     rhythm: str | None = None
     capo: int = 0
     notes: str | None = None

@@ -107,13 +107,14 @@ class Database:
         cur.execute("""
             CREATE TABLE IF NOT EXISTS songs (
                 id         INTEGER PRIMARY KEY AUTOINCREMENT,
-                title      TEXT NOT NULL,
-                author     TEXT,
-                `key`      TEXT,
-                rhythm     TEXT,
-                capo       INTEGER DEFAULT 0,
-                notes      TEXT,
-                created_at TEXT DEFAULT (datetime('now')),
+                title        TEXT NOT NULL,
+                author       TEXT,
+                `key`        TEXT,
+                original_key TEXT,
+                rhythm       TEXT,
+                capo         INTEGER DEFAULT 0,
+                notes        TEXT,
+                created_at   TEXT DEFAULT (datetime('now')),
                 updated_at TEXT DEFAULT (datetime('now'))
             )
         """)
@@ -174,6 +175,7 @@ class Database:
             )
         """)
         self._migrate_section_transpose(cur)
+        self._migrate_song_original_key(cur)
         conn.commit()
 
     def _migrate_section_transpose(self, cur: sqlite3.Cursor) -> None:
@@ -182,6 +184,13 @@ class Database:
         columns = [row[1] for row in cur.fetchall()]  # row[1] = nombre de columna
         if "transpose" not in columns:
             cur.execute("ALTER TABLE sections ADD COLUMN transpose INTEGER DEFAULT 0")
+
+    def _migrate_song_original_key(self, cur: sqlite3.Cursor) -> None:
+        """Añade la columna ``original_key`` a ``songs`` si una BD antigua no la tiene."""
+        cur.execute("PRAGMA table_info(songs)")
+        columns = [row[1] for row in cur.fetchall()]
+        if "original_key" not in columns:
+            cur.execute("ALTER TABLE songs ADD COLUMN original_key TEXT")
 
     # ------------------------------------------------------------------
     # CRUD canciones
@@ -201,16 +210,17 @@ class Database:
         try:
             if song.id is None:
                 cur.execute(
-                    "INSERT INTO songs (title, author, `key`, rhythm, capo, notes) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
-                    (song.title, song.author, song.key, song.rhythm, song.capo, song.notes),
+                    "INSERT INTO songs (title, author, `key`, original_key, rhythm, capo, notes) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (song.title, song.author, song.key, song.original_key,
+                     song.rhythm, song.capo, song.notes),
                 )
                 song.id = cur.lastrowid
             else:
                 cur.execute(
-                    "UPDATE songs SET title=?, author=?, `key`=?, rhythm=?, "
+                    "UPDATE songs SET title=?, author=?, `key`=?, original_key=?, rhythm=?, "
                     "capo=?, notes=?, updated_at=datetime('now') WHERE id=?",
-                    (song.title, song.author, song.key, song.rhythm,
+                    (song.title, song.author, song.key, song.original_key, song.rhythm,
                      song.capo, song.notes, song.id),
                 )
                 # Borrar secciones antiguas; el CASCADE elimina líneas/sílabas/acordes
@@ -261,7 +271,7 @@ class Database:
         conn = self._connect()
         cur = conn.cursor()
         cur.execute(
-            "SELECT id, title, author, `key`, rhythm, capo, notes "
+            "SELECT id, title, author, `key`, original_key, rhythm, capo, notes "
             "FROM songs WHERE id=?",
             (song_id,),
         )
@@ -274,6 +284,7 @@ class Database:
             title=row["title"],
             author=row["author"],
             key=row["key"],
+            original_key=row["original_key"],
             rhythm=row["rhythm"],
             capo=row["capo"] or 0,
             notes=row["notes"],

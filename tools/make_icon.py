@@ -1,9 +1,12 @@
-"""Genera assets/icon.ico para HymnChords.
+"""Genera assets/icon.ico a partir del ícono de la marca (assets/Ilahi-iconAPP.png).
 
-Dibuja una nota musical sobre el fondo oscuro del tema y la guarda como ícono
-multitamaño. Pillow es dependencia SOLO de build (ver requirements-build.txt); la
-app empaquetada no la necesita. El .ico resultante se commitea, así que solo hay
-que correr este script si se quiere rediseñar el ícono.
+Antes este script DIBUJABA una nota musical con Pillow; ahora solo convierte el
+ícono oficial de Ilahi al formato multitamaño que necesita Windows (la ventana y
+el .exe). El PNG fuente se commitea junto al .ico.
+
+Pillow es dependencia SOLO de build (ver requirements-build.txt); la app
+empaquetada no la necesita. El .ico resultante se commitea, así que solo hay que
+correr este script si cambia el ícono de la marca.
 
 Uso:
     python tools/make_icon.py
@@ -12,44 +15,25 @@ Uso:
 from __future__ import annotations
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image
 
-# Colores del tema (ver THEME en ui/app.py)
-BG = (15, 15, 15)          # #0f0f0f
-CHORD = (126, 184, 164)    # #7eb8a4 (verde azulado)
-ACCENT = (200, 169, 110)   # #c8a96e (dorado)
-
-# Lienzo grande; el .ico se reescala a los tamaños estándar al guardar.
-SIZE = 256
 ASSETS = Path(__file__).resolve().parent.parent / "assets"
+SRC = ASSETS / "Ilahi-iconAPP.png"
 OUT = ASSETS / "icon.ico"
 
-
-def _draw_note(d: ImageDraw.ImageDraw) -> None:
-    """Dibuja una corchea estilizada centrada en el lienzo."""
-    # Plica (línea vertical)
-    stem_x = 158
-    d.line([(stem_x, 60), (stem_x, 176)], fill=CHORD, width=12)
-    # Banderola
-    d.line([(stem_x, 60), (210, 96)], fill=ACCENT, width=12)
-    d.line([(stem_x, 92), (206, 126)], fill=ACCENT, width=12)
-    # Cabeza de la nota (elipse rellena, ligeramente inclinada por el offset)
-    d.ellipse([(96, 150), (164, 200)], fill=CHORD)
+# Tamaños estándar de Windows: el explorador y la barra de tareas eligen el que
+# necesitan. 256 es el máximo que admite el formato .ico.
+SIZES = [(16, 16), (24, 24), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
 
 
 def main() -> None:
-    ASSETS.mkdir(parents=True, exist_ok=True)
-    img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
-    d = ImageDraw.Draw(img)
-
-    # Fondo redondeado con borde dorado tenue.
-    d.rounded_rectangle([(8, 8), (SIZE - 8, SIZE - 8)], radius=44, fill=BG,
-                        outline=ACCENT, width=4)
-    _draw_note(d)
-
-    sizes = [(16, 16), (32, 32), (48, 48), (64, 64), (128, 128), (256, 256)]
-    img.save(OUT, format="ICO", sizes=sizes)
-    print(f"Ícono generado: {OUT}")
+    """Convierte el PNG de la marca en un .ico multitamaño."""
+    if not SRC.exists():
+        raise SystemExit(f"Falta el ícono de la marca: {SRC}")
+    # RGBA conserva la transparencia si el PNG la trae; Windows la respeta.
+    img = Image.open(SRC).convert("RGBA")
+    img.save(OUT, format="ICO", sizes=SIZES)
+    print(f"Ícono generado: {OUT}  ({img.width}×{img.height} → {len(SIZES)} tamaños)")
 
 
 if __name__ == "__main__":
