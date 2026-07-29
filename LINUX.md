@@ -119,7 +119,13 @@ Abrilo en el navegador, **con tu cuenta ya iniciada**.
 ### 2.3 — Hacer tu Fork
 
 Arriba a la derecha de la página vas a ver un botón que dice **Fork**. Hacé
-clic ahí (podés dejar las opciones por defecto y confirmar).
+clic ahí.
+
+> ⚠️ En la pantalla de confirmación puede aparecer un casillero que dice
+> **"Copy the `main` branch only"**, marcado por defecto. **No importa si
+> queda marcado o no** — el Paso 2.7 más abajo trae `develop` directo del
+> repositorio de Eduardo sin depender de qué haya copiado el fork. Confirmá
+> como esté.
 
 Esto crea una **copia del repositorio dentro de tu propia cuenta**. Vas a
 terminar en una página con una URL parecida a esta (con tu usuario, no el de
@@ -144,8 +150,12 @@ botón verde que dice **Code**, hacé clic, y copiá la URL que aparece bajo
 
 ### 2.5 — Elegir dónde va a vivir el proyecto
 
-Abrí la terminal y movete a la carpeta donde querés que aparezca el proyecto.
-Por ejemplo, tu Escritorio:
+Primero hay que abrir una terminal. La forma más simple: ir al Escritorio,
+clic derecho sobre un espacio vacío (no sobre un ícono) y buscar una opción
+como **"Abrir terminal aquí"**. Si no aparece esa opción, se puede abrir la
+terminal desde el menú de aplicaciones (buscando "Terminal") y después
+moverse a la carpeta donde se quiere que aparezca el proyecto. Por ejemplo,
+el Escritorio:
 
 ```bash
 cd ~/Escritorio
@@ -174,27 +184,35 @@ cd Chords-Editor
 > (un solo archivo) y `dev_dcoa37` es la rama personal de Eduardo — ninguna
 > de las dos es para vos. **Trabajá siempre desde `develop`**, que es donde
 > Eduardo dejó el proyecto completo. Cuando clonás, `git` te deja parado en
-> `main` por defecto. Si seguís de largo sin hacer el paso 2.7, no vas a
-> encontrar la mayoría de los archivos que mencionamos más abajo.
+> `main` por defecto y es posible que tu fork ni siquiera tenga `develop`
+> copiada. El Paso 2.7 lo resuelve trayéndola directo del repositorio de
+> Eduardo. Si seguís de largo sin hacer ese paso, no vas a encontrar la
+> mayoría de los archivos que mencionamos más abajo.
 
-### 2.7 — Pararte sobre el código real y crear tu rama de trabajo
+### 2.7 — Traer el código real y crear tu rama de trabajo
 
-Primero, movete a la rama donde está todo el trabajo:
+El fork puede o no haber copiado la rama `develop` (depende de aquel
+casillero del Paso 2.3). Para no depender de eso, la traemos **directo del
+repositorio de Eduardo**, agregándolo como un segundo remoto llamado
+`upstream` (además de `origin`, que ya apunta a tu fork):
 
 ```bash
-git checkout develop
+git remote add upstream https://github.com/Eduardo-Coa/Chords-Editor.git
+git fetch upstream develop
 ```
 
-Ahora sí, creá tu rama de trabajo **a partir de esta**:
+Ahora sí, creá tu rama de trabajo **a partir de esa `develop` recién traída**:
 
 ```bash
-git checkout -b linux
+git checkout -b linux upstream/develop
 ```
 
-Esto crea una rama nueva llamada `linux`, partiendo de `develop` (no de
-`main` ni de la personal de Eduardo), y te para sobre ella. Trabajar en una
-rama aparte es lo que te permite mandar tus cambios prolijos con un Pull
-Request al final (Paso 7).
+Esto crea una rama nueva llamada `linux`, partiendo del código completo de
+`develop` (no de `main` ni de la rama personal de Eduardo), y te para sobre
+ella. Trabajar en una rama aparte es lo que te permite mandar tus cambios
+prolijos con un Pull Request al final (Paso 7). Cuando más adelante subas tus
+cambios (`git push`), van a ir a `origin` (tu fork) — `upstream` es solo de
+lectura, para traer contenido.
 
 Confirmá que quedaste en el lugar correcto:
 
@@ -437,6 +455,12 @@ funciona en los dos sistemas.
 ---
 
 ## Problemas comunes
+
+**`error: ruta especificada 'develop' no concordó con ningún archivo conocido por git`**
+El fork copió solo la rama `main` (pasa si quedó marcado el casillero "Copy the
+`main` branch only" al hacer el Fork). No hace falta rehacer el fork: seguí el
+Paso 2.7 (`git remote add upstream ...` + `git fetch upstream develop`), que
+trae `develop` directo del repositorio de Eduardo sin depender del fork.
 
 **`ModuleNotFoundError: No module named 'tkinter'`**
 Falta el paquete del sistema. Volvé al Paso 1 (`sudo apt install python3-tk`).

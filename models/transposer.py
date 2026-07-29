@@ -104,6 +104,22 @@ def transpose_chord(chord: str, semitones: int, key: str | None = None) -> str:
     return scale[new_index] + suffix
 
 
+def key_offset(from_key: str, to_key: str) -> int | None:
+    """Semitonos necesarios para pasar de ``from_key`` a ``to_key``.
+
+    Devuelve el desplazamiento más corto, en el rango [-6, +5] (nunca da la
+    vuelta entera), o ``None`` si alguno de los dos tonos no es reconocible.
+    Solo compara la tónica: pedir "C" estando en "Am" da +3 igual que "Cm".
+    Ejemplo: key_offset("D", "F") → 3
+    """
+    src = _parse_key_pitch(from_key)
+    dst = _parse_key_pitch(to_key)
+    if src is None or dst is None:
+        return None
+    delta = (dst[0] - src[0]) % 12
+    return delta - 12 if delta > 6 else delta
+
+
 def transpose_song(song: Song, semitones: int) -> Song:
     """
     Devuelve una copia de la canción con todos los acordes transpuestos.
@@ -157,7 +173,7 @@ def bake_transpositions(song: Song, global_offset: int = 0) -> Song:
 
     Es el equivalente persistente de :func:`display_song`: lo que el usuario ve
     (offset global + modulación por bloque) pasa a ser el modelo real y editable.
-    Se usa al pulsar «Guardar en este tono». No muta el objeto original.
+    Se usa al pulsar «Guardar». No muta el objeto original.
     """
     song_copy = copy.deepcopy(song)
     key = song.key

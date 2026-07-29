@@ -18,6 +18,7 @@ THEME = {
     "surface":      "#181818",
     "surface2":     "#222222",
     "border":       "#2e2e2e",
+    "divider":      "#3d3d3d",   # líneas separadoras (más visibles que el borde)
     "text":         "#e8e4d8",
     "text_muted":   "#777777",
 
@@ -32,15 +33,21 @@ THEME = {
 
     # Acento dorado para UI
     "accent":       "#c8a96e",
+    # Verde apagado (mismo registro que el dorado y el verde azulado de acordes):
+    # marca "hay cambios sin guardar" en el botón Guardar.
+    "success":      "#8fb573",
     "danger":       "#c06060",
 
     # Tipografía
     "font_ui":          ("Segoe UI", 10),
-    "font_list":        ("Segoe UI", 12),   # lista de canciones (panel izquierdo)
+    "font_list":        ("Segoe UI", 10),   # filas de la lista de canciones
+    "font_panel":       ("Segoe UI", 12),   # pestañas + buscador/filtros del panel
+    "font_toolbar":     ("Segoe UI", 12),   # botones de la barra de herramientas
+    "font_meta":        ("Segoe UI", 11),   # barra Título/Autor/Tono/Ritmo/Capo
     "font_mono":        ("Consolas", 11),
     "font_stage":       ("Consolas", 22),
     "font_chord_stage": ("Consolas", 18),
-    "font_section":     ("Segoe UI", 9),
+    "font_section":     ("Segoe UI", 11),
 }
 
 
@@ -60,6 +67,9 @@ def _apply_platform_fonts() -> None:
         replacements = {
             "font_ui":          ("Helvetica Neue", 12),
             "font_list":        ("Helvetica Neue", 14),
+            "font_panel":       ("Helvetica Neue", 12),
+            "font_toolbar":     ("Helvetica Neue", 12),
+            "font_meta":        ("Helvetica Neue", 12),
             "font_mono":        ("Menlo", 12),
             "font_stage":       ("Menlo", 24),
             "font_chord_stage": ("Menlo", 20),
@@ -76,13 +86,17 @@ def ctk_button_style(kind: str = "normal", font: tuple | None = None) -> dict:
     """Kwargs de estilo para ``CTkButton`` según la paleta A.
 
     Reutilizable por todas las vistas migradas para mantener un look coherente.
-    ``kind``: 'normal' (gris), 'accent' (dorado), 'danger' (rojo). ``font``
-    sobreescribe la tipografía (por defecto ``font_ui``).
+    ``kind``: 'normal' (gris), 'accent' (dorado), 'success' (verde, cambios sin
+    guardar), 'danger' (rojo). ``font`` sobreescribe la tipografía (por defecto
+    ``font_ui``).
     """
     base = {"corner_radius": 8, "border_width": 0, "font": font or THEME["font_ui"]}
     if kind == "accent":
         return {**base, "fg_color": THEME["accent"],
                 "hover_color": THEME["accent"], "text_color": THEME["bg"]}
+    if kind == "success":
+        return {**base, "fg_color": THEME["success"],
+                "hover_color": THEME["success"], "text_color": THEME["bg"]}
     if kind == "danger":
         return {**base, "fg_color": THEME["surface2"],
                 "hover_color": THEME["danger"], "text_color": THEME["danger"]}
@@ -125,10 +139,10 @@ class App:
         self._nav_buttons = {
             "songs": ctk.CTkButton(
                 nav, text="Canciones", width=110,
-                command=lambda: self._show_section("songs"), **ctk_button_style("normal", THEME["font_list"])),
+                command=lambda: self._show_section("songs"), **ctk_button_style("normal", THEME["font_panel"])),
             "setlists": ctk.CTkButton(
                 nav, text="Listas", width=110,
-                command=lambda: self._show_section("setlists"), **ctk_button_style("normal", THEME["font_list"])),
+                command=lambda: self._show_section("setlists"), **ctk_button_style("normal", THEME["font_panel"])),
         }
         self._nav_buttons["songs"].pack(side="left", padx=(10, 4), pady=6)
         self._nav_buttons["setlists"].pack(side="left", padx=4, pady=6)

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 import re
+import unicodedata
 from collections import defaultdict, deque
 
 from models.song import Song, Section, Line, Syllable, Chord
@@ -106,9 +107,12 @@ def is_chord_line_text(line: str) -> bool:
 
 # Palabras clave para inferir el tipo de sección a partir de su etiqueta.
 # El primer tipo cuya palabra clave aparezca en la etiqueta gana.
+# Palabras (sin tildes) que delatan el tipo de una sección con corchetes. Incluye
+# portugués porque Cifra Club es brasileño y sus transcripciones —aun de canciones en
+# español— rotulan las secciones en portugués: «refrão» = coro, «ponte» = puente.
 SECTION_TYPE_KEYWORDS = [
-    ("chorus", ("coro", "chorus", "estribillo")),
-    ("bridge", ("puente", "bridge")),
+    ("chorus", ("coro", "chorus", "estribillo", "refrao", "refran")),
+    ("bridge", ("puente", "bridge", "ponte")),
     ("intro", ("intro",)),
     ("outro", ("final", "outro", "coda")),
     ("verse", ("estrofa", "verso", "verse")),
@@ -116,8 +120,11 @@ SECTION_TYPE_KEYWORDS = [
 
 
 def _strip_accents(text: str) -> str:
-    """Quita tildes para comparar palabras clave de sección."""
-    return text.translate(str.maketrans("áéíóúü", "aeiouu"))
+    """Quita diacríticos para comparar palabras clave de sección. Cubre español y
+    portugués (Cifra Club es brasileño): «canción»→«cancion», «refrão»→«refrao»,
+    «introdução»→«introducao», «ç»→«c». Descompone en Unicode y descarta las marcas."""
+    return "".join(c for c in unicodedata.normalize("NFD", text)
+                   if unicodedata.category(c) != "Mn")
 
 
 def is_section_header(line: str) -> bool:
@@ -148,6 +155,7 @@ def _repair_unmatched_brackets(line: str) -> str:
 _SLOT_SECTION = {
     "intro": ("Introducción", "intro"),
     "introduccion": ("Introducción", "intro"),
+    "introducao": ("Introducción", "intro"),   # portugués «introdução»
     "inter": ("Interludio", "intro"),
     "interludio": ("Interludio", "intro"),
 }
@@ -165,7 +173,10 @@ def parse_section_header(line: str) -> tuple[str, str]:
     El tipo se infiere por palabras clave; por defecto 'verse'.
     """
     match = SECTION_RE.match(line.strip())
-    label = match.group(1).strip() if match else line.strip()
+    label = (match.group(1) if match else line).strip()
+    # Puntuación colgada del copiado web: «Refrão )» → «Refrão». No se toca el número
+    # («Estrofa 1»): los dígitos no están en el conjunto que se recorta.
+    label = label.rstrip(" ).:-").strip() or label
     normalized = _strip_accents(label.lower())
     slot = _slot_section_header(normalized)
     if slot is not None:
@@ -181,29 +192,55 @@ def parse_section_header(line: str) -> tuple[str, str]:
 _IMPLICIT_SECTION_KEYWORDS = {
     "coro": ("Coro", "chorus"),
     "estribillo": ("Estribillo", "chorus"),
+    "refran": ("Coro", "chorus"),          # español «refrán»
+    "refrao": ("Coro", "chorus"),          # portugués «refrão»
+    "estrofa": ("Estrofa", "verse"),
+    "verso": ("Estrofa", "verse"),
+    "verse": ("Estrofa", "verse"),
     "puente": ("Puente", "bridge"),
+    "ponte": ("Puente", "bridge"),         # portugués
     # intro/interludio → sección de casillas (tipo 'intro', se muestran con guiones)
     "interludio": ("Interludio", "intro"),
     "inter": ("Interludio", "intro"),
     "intro": ("Introducción", "intro"),
     "introduccion": ("Introducción", "intro"),
+    "introducao": ("Introducción", "intro"),   # portugués «introdução»
     "final": ("Final", "outro"),
     "outro": ("Final", "outro"),
     "coda": ("Coda", "outro"),
 }
 
-# "Estrofa 2" / "Verso 2" escrito como texto (con o sin número)
-_VERSE_WORD_RE = re.compile(r"^(?:estrofa|verso)\s*(\d+)?$")
+# Una palabra clave de sección con número opcional: «coro», «Coro 1», «Refrão»,
+# «Ponte 2». (El guion permite «pre-coro».)
+_KEYWORD_NUM_RE = re.compile(r"^([a-zñ]+(?:-[a-zñ]+)?)(?:\s+(\d+))?$")
+
+
+def _implicit_keyword_section(core: str) -> tuple[str, str] | None:
+    """(etiqueta, tipo) si ``core`` es una palabra clave de sección con número opcional;
+    None si no. Canonicaliza la etiqueta (coro→Coro, verso→Estrofa) y conserva el
+    número: «CORO 1» → ("Coro 1", "chorus"). Antes solo se reconocía «Verso N», de modo
+    que «Coro 1» / «Intro 2» (como los escribe Cifra Club) se perdían."""
+    normalized = _strip_accents(core.lower())
+    m = _KEYWORD_NUM_RE.match(normalized)
+    if not m:
+        return None
+    base, num = m.group(1), m.group(2)
+    info = _IMPLICIT_SECTION_KEYWORDS.get(base)
+    if info is None:
+        return None
+    label, section_type = info
+    return (f"{label} {num}" if num else label), section_type
 
 
 def detect_header(line: str) -> tuple[str, str] | None:
     """
     Detecta un encabezado de sección y devuelve (etiqueta, tipo), o None.
 
-    Reconoce tres formas:
-      - Explícita con corchetes:  ``[Coro]``, ``[Estrofa 1]``
-      - Un número solo:           ``1`` → ("Estrofa 1", "verse")
-      - Una palabra clave sola:   ``Coro:``, ``coro`` → ("Coro", "chorus")
+    Reconoce estas formas:
+      - Explícita con corchetes:   ``[Coro]``, ``[Estrofa 1]``, ``[Refrão]``
+      - Un número solo:            ``1`` → ("Estrofa 1", "verse")
+      - Palabra clave con número:  ``Coro 1``, ``Intro 2`` → ("Coro 1", "chorus")
+      - Una palabra clave sola:    ``Coro:``, ``coro`` → ("Coro", "chorus")
     """
     stripped = line.strip()
     if not stripped:
@@ -225,19 +262,9 @@ def detect_header(line: str) -> tuple[str, str] | None:
     if core.isdigit():
         return f"Estrofa {core}", "verse"
 
-    normalized = _strip_accents(core.lower())
-
-    # "Estrofa 2" / "Verso" escrito como texto
-    verse_match = _VERSE_WORD_RE.match(normalized)
-    if verse_match:
-        num = verse_match.group(1)
-        return (f"Estrofa {num}" if num else "Estrofa"), "verse"
-
-    # Palabra clave conocida (coro, puente, intro, final, ...)
-    if normalized in _IMPLICIT_SECTION_KEYWORDS:
-        return _IMPLICIT_SECTION_KEYWORDS[normalized]
-
-    return None
+    # Palabra clave (coro, verso, puente, intro, final, refrão, ponte…) con número
+    # opcional: «Coro», «Coro 1», «Estrofa 2», «Refrão».
+    return _implicit_keyword_section(core)
 
 
 def _split_word(word: str) -> list[str]:
@@ -466,6 +493,20 @@ def parse_lyrics(text: str, title: str = "Sin título") -> Song:
     # MEDIO del texto no se tocan: ahí separan estrofas.
     while raw_lines and not raw_lines[0].strip():
         raw_lines.pop(0)
+    # «[Intro] A»: Cifra Club a veces pega el primer acorde en la misma línea del
+    # encabezado. Sin esto, la línea no cerraba en «]» y el nombre de la sección salía
+    # roto («Intro] A»). Se parte en dos: el encabezado por un lado y el resto (los
+    # acordes) como su primera línea. Solo actúa si lo que va entre corchetes ES un
+    # encabezado, para no partir una línea de letra que empiece con un corchete.
+    expandidas: list[str] = []
+    for rl in raw_lines:
+        m = re.match(r"^\s*(\[[^\[\]]+\])\s+(\S.*)$", rl)
+        if m and detect_header(m.group(1)) is not None:
+            expandidas.append(m.group(1))
+            expandidas.append(m.group(2))
+        else:
+            expandidas.append(rl)
+    raw_lines = expandidas
     has_chords = any(
         detect_header(rl) is None and is_chord_line_text(rl)
         for rl in raw_lines

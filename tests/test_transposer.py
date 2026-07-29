@@ -6,7 +6,7 @@ import pytest
 from models.song import Song, Section, Line, Syllable, Chord
 from models.transposer import (
     transpose_chord, transpose_song, display_song, bake_transpositions,
-    respell_to_key,
+    respell_to_key, key_offset,
 )
 
 
@@ -247,3 +247,36 @@ def test_slash_deletrea_ambas_partes_segun_el_tono():
 
 def test_slash_respell_sin_cambiar_altura():
     assert transpose_chord("C/E", 0) == "C/E"
+
+
+# ---------------------------------------------------------------------------
+# key_offset: semitonos entre dos tonos (casilla "Círculo" de la barra superior)
+# ---------------------------------------------------------------------------
+
+def test_key_offset_basico():
+    assert key_offset("D", "F") == 3
+    assert key_offset("D", "D") == 0
+    assert key_offset("C", "Bb") == -2
+
+
+def test_key_offset_toma_el_camino_corto():
+    # De Do a Si: -1, no +11
+    assert key_offset("C", "B") == -1
+    assert key_offset("B", "C") == 1
+    # El tritono se resuelve hacia arriba (+6, límite del rango)
+    assert key_offset("C", "F#") == 6
+
+
+def test_key_offset_ignora_el_modo():
+    # Solo cuenta la tónica: pedir "C" estando en "Am" da lo mismo que "Cm"
+    assert key_offset("Am", "C") == key_offset("Am", "Cm") == 3
+
+
+def test_key_offset_acepta_bemoles_y_sostenidos():
+    assert key_offset("Db", "C#") == 0
+    assert key_offset("E", "Ab") == 4
+
+
+def test_key_offset_tono_invalido():
+    assert key_offset("D", "H") is None
+    assert key_offset("", "D") is None

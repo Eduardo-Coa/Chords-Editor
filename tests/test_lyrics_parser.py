@@ -138,6 +138,44 @@ def test_detect_header_linea_normal_no_es_encabezado():
     assert detect_header("") is None
 
 
+def test_detect_header_palabra_clave_con_numero():
+    """Cifra Club numera coros e intros («CORO 1», «INTRO 2»). Antes solo se
+    reconocía «Verso N»; los demás se fundían con la sección anterior."""
+    assert detect_header("CORO 1") == ("Coro 1", "chorus")
+    assert detect_header("Coro 2") == ("Coro 2", "chorus")
+    assert detect_header("INTRO 2") == ("Introducción 2", "intro")
+    assert detect_header("Puente 1") == ("Puente 1", "bridge")
+    assert detect_header("TODO LO HACES NUEVO, JESUS") is None
+
+
+def test_detect_header_portugues():
+    """Cifra Club es brasileño: rotula en portugués aun canciones en español."""
+    assert detect_header("Refrão") == ("Coro", "chorus")
+    assert detect_header("Ponte") == ("Puente", "bridge")
+    assert detect_header("Ponte 2") == ("Puente 2", "bridge")
+    assert parse_section_header("[Refrão]") == ("Refrão", "chorus")
+    assert parse_section_header("[Introdução]") == ("Introducción", "intro")
+
+
+def test_parse_section_header_puntuacion_colgada():
+    """«[Refrão )]» (paréntesis colgado del copiado web) → «Refrão», tipo coro."""
+    assert parse_section_header("[Refrão )]") == ("Refrão", "chorus")
+    assert parse_section_header("[Coro :]") == ("Coro", "chorus")
+    assert parse_section_header("[Estrofa 1]") == ("Estrofa 1", "verse")
+
+
+def test_encabezado_con_acorde_pegado():
+    """«[Intro] A»: Cifra a veces pega el primer acorde en la línea del encabezado.
+    Antes la sección salía con nombre roto («Intro] A»); ahora es una intro limpia y
+    el acorde pasa a ser su contenido."""
+    song = parse_lyrics("[Intro] A\nE  D  A\n[Coro]\nGracias Señor\n     G")
+    intro = song.sections[0]
+    assert intro.type == "intro"
+    assert intro.label == "Introducción"
+    valores = [s.chord.value for ln in intro.lines for s in ln.syllables if s.chord]
+    assert "A" in valores
+
+
 def test_parse_con_numeros_y_coro_implicitos():
     texto = (
         "1\nVivo por Cristo\nvida me imparte\n"
