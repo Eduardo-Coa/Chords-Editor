@@ -15,6 +15,10 @@ from database.config import data_dir
 
 _PREF_PATH = data_dir() / "preferences.json"
 
+# Clave del tamaño de fuente del modo escenario (compartido por la vista inline
+# y la de pantalla completa, y por todas las canciones que se abran).
+STAGE_FONT_SIZE_KEY = "stage_lyric_size"
+
 
 def load_preferences(path: Path | None = None) -> dict:
     """Lee las preferencias guardadas; devuelve {} si no existe o está corrupto."""
@@ -34,3 +38,16 @@ def save_preference(key: str, value, path: Path | None = None) -> None:
     prefs[key] = value
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(prefs, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def load_stage_font_size(default: int, path: Path | None = None) -> int:
+    """Tamaño de fuente de escenario guardado; ``default`` si no hay o es inválido."""
+    value = load_preferences(path).get(STAGE_FONT_SIZE_KEY)
+    if not isinstance(value, int) or isinstance(value, bool):
+        return default
+    return max(10, value)
+
+
+def save_stage_font_size(size: int, path: Path | None = None) -> None:
+    """Persiste el tamaño de fuente de escenario para las próximas canciones."""
+    save_preference(STAGE_FONT_SIZE_KEY, int(size), path)

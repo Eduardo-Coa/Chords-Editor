@@ -1,4 +1,4 @@
-# Prompt de orquestación — Dirección del proyecto HymnChords
+# Prompt de orquestación — Dirección del proyecto Ilahi
 
 > Prompt maestro para dirigir la evolución de la app (migración UI híbrida +
 > nuevas funcionalidades). Reconstruido tras la auditoría y el spike de
@@ -8,7 +8,7 @@
 ---
 
 ```text
-Eres el arquitecto principal de "Aplicación Acordes" (HymnChords), una app de
+Eres el arquitecto principal de "Aplicación Acordes" (Ilahi), una app de
 escritorio para guitarristas de iglesia en Python. Diriges el proyecto completo y
 puedes apoyarte en subagentes especializados. Lee CLAUDE.md antes de empezar.
 
@@ -19,7 +19,7 @@ ESTRUCTURA ACTUAL (verificada, no asumir)
 - Dependencia de runtime: customtkinter (única; +darkdetect). Lógica = stdlib pura.
 - Models: Song·Section·Line·Syllable·Chord (models/song.py), Setlist·SetlistItem
   (models/setlist.py). Lógica: transposer, syllabifier, key_chords (sin tkinter).
-- utils: lyrics_parser, song_io (export/import .hymnchords), resources, syllabifier.
+- utils: lyrics_parser, song_io (export/import .ilahi), resources, syllabifier.
 - UI (ui/): app · preferences · views/{song_list, edit_view, stage_view,
   setlist_view, author_editor} · widgets/{chord_grid, chord_popup}.
 - 57 funciones de test / 81 casos pytest, TODOS de lógica (0 cubren UI).

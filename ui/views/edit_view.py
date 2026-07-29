@@ -17,6 +17,7 @@ from utils.song_text import song_to_text, SECTION_LABELS
 from utils.lyrics_parser import (parse_lyrics, merge_lyrics, is_chord_line,
                                  prepend_intro, INTRO_LABEL)
 from ui.app import THEME, ctk_button_style
+from ui.preferences import load_stage_font_size, save_stage_font_size
 from ui.views.song_list import SongList
 from ui.views.author_export import AuthorExportDialog
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
@@ -112,7 +113,9 @@ class EditView(ctk.CTkFrame):
         self.transpose_offset = 0
         self._view_mode = "edit"  # 'edit' o 'stage' (escenario inline)
         self._content_view = "grid"  # 'grid' o 'lyrics' (qué ocupa el área central)
-        self._stage_lyric_size = STAGE_LYRIC_SIZE_DEFAULT
+        # Tamaño de fuente del escenario: preferencia global y persistente, así
+        # que se aplica igual a todas las canciones que se abran.
+        self._stage_lyric_size = load_stage_font_size(STAGE_LYRIC_SIZE_DEFAULT)
 
         self._build()
 
@@ -338,7 +341,7 @@ class EditView(ctk.CTkFrame):
         line.grid(row=1, column=column, sticky="ns", padx=10, pady=1)
 
     def _build_file_menu(self, bar: tk.Misc, column: int) -> None:
-        """Botón 'Archivo': importar/exportar (.hymnchords), PDF y copiar.
+        """Botón 'Archivo': importar/exportar (.ilahi), PDF y copiar.
 
         Es un ``CTkButton`` como el resto del toolbar (un ``tk.Menubutton`` no
         toma el estilo del tema); el menú se despliega a mano bajo el botón.
@@ -386,6 +389,7 @@ class EditView(ctk.CTkFrame):
             on_remove=self._remove_slot,
             on_section_transpose=self._change_section_transpose,
         )
+        self.grid_widget.set_stage_font_size(self._stage_lyric_size)
         self.grid_widget.pack(fill="both", expand=True, anchor="nw")
 
         # Editor de letra (oculto al inicio)
@@ -395,10 +399,13 @@ class EditView(ctk.CTkFrame):
             font=(THEME["font_mono"][0], 16), wrap="word",  # mono, algo mayor para editar
         )
         self._paste_text.pack(fill="both", expand=True, padx=4, pady=4)
-        ctk.CTkButton(
-            self._paste_frame, text="Procesar letra", command=self._process_lyrics,
-            **ctk_button_style("accent", THEME["font_list"]),
-        ).pack(pady=6)
+        # El rótulo cambia según el contexto (ver _show_paste): "Procesar" al crear
+        # una canción nueva, "Guardar cambios" al editar la letra de una existente.
+        self._process_btn = ctk.CTkButton(
+            self._paste_frame, text="Procesar", command=self._process_lyrics,
+            **ctk_button_style("accent", THEME["font_toolbar"]),
+        )
+        self._process_btn.pack(pady=6)
 
         self._build_stage_fab()
         self._show_grid()
@@ -441,6 +448,9 @@ class EditView(ctk.CTkFrame):
             self._paste_text.insert("1.0", initial_text)
         else:
             self._paste_text.insert("1.0", "Pega la letra aquí...")
+        self._process_btn.configure(
+            text="Guardar cambios" if self.song is not None else "Procesar"
+        )
         self._paste_frame.pack(fill="both", expand=True)
         self._content_view = "lyrics"
         self._refresh_mode_buttons()
@@ -502,7 +512,7 @@ class EditView(ctk.CTkFrame):
             var.set("")
         self.grid_widget.set_song(None)
         self._show_paste()
-        self._set_status("Pega la letra y pulsa 'Procesar letra'")
+        self._set_status("Pega la letra y pulsa 'Procesar'")
 
     def _edit_lyrics(self) -> None:
         if self.song is None:
@@ -909,11 +919,11 @@ class EditView(ctk.CTkFrame):
         self._set_status(f"Guardado en {key}" if key else "Guardado en el nuevo tono")
 
     # ------------------------------------------------------------------
-    # Importar / Exportar canción (.hymnchords)
+    # Importar / Exportar canción (.ilahi)
     # ------------------------------------------------------------------
 
     def _export_song(self) -> None:
-        """Exporta la canción abierta a un archivo .hymnchords (tono original)."""
+        """Exporta la canción abierta a un archivo .ilahi (tono original)."""
         if self.song is None:
             self._set_status("No hay canción para exportar")
             return
@@ -922,7 +932,7 @@ class EditView(ctk.CTkFrame):
             parent=self, title="Exportar canción",
             defaultextension=ext,
             initialfile=song_io.suggested_filename(self.song),
-            filetypes=[("Canción HymnChords", f"*{ext}"), ("Todos", "*.*")],
+            filetypes=[("Canción Ilahi", f"*{ext}"), ("Todos", "*.*")],
         )
         if not path:
             return
@@ -934,11 +944,16 @@ class EditView(ctk.CTkFrame):
         self._set_status(f"Exportada: {self.song.title}")
 
     def _import_song(self) -> None:
-        """Importa desde un .hymnchords: una canción suelta o un cancionero completo."""
+        """Importa desde un .ilahi: una canción suelta o un cancionero completo.
+
+        El filtro incluye la extensión heredada .hymnchords para que los archivos
+        exportados con el nombre anterior sigan apareciendo en el diálogo.
+        """
         ext = song_io.SONG_FILE_EXTENSION
+        legacy = song_io.LEGACY_FILE_EXTENSION
         path = filedialog.askopenfilename(
             parent=self, title="Importar canción o cancionero",
-            filetypes=[("HymnChords", f"*{ext}"), ("Todos", "*.*")],
+            filetypes=[("Ilahi", f"*{ext} *{legacy}"), ("Todos", "*.*")],
         )
         if not path:
             return
@@ -1075,8 +1090,17 @@ class EditView(ctk.CTkFrame):
         """Ajusta el tamaño de fuente de la vista escenario (inline y pantalla completa)."""
         self._stage_lyric_size = max(10, self._stage_lyric_size + delta)
         self.grid_widget.set_stage_font_size(self._stage_lyric_size)
+        save_stage_font_size(self._stage_lyric_size)
         if self._view_mode == "stage":
             self._set_status(f"Tamaño de fuente: {self._stage_lyric_size}")
+
+    def sync_stage_font_size(self) -> None:
+        """Relee el tamaño de fuente guardado (lo pudo cambiar la vista escenario)."""
+        size = load_stage_font_size(self._stage_lyric_size)
+        if size == self._stage_lyric_size:
+            return
+        self._stage_lyric_size = size
+        self.grid_widget.set_stage_font_size(size)
 
     def _pick_chord_color(self) -> None:
         """Abre el selector de color para los acordes (global y persistente)."""

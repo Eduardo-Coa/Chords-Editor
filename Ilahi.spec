@@ -1,10 +1,10 @@
 # -*- mode: python ; coding: utf-8 -*-
-"""Receta de PyInstaller para HymnChords.
+"""Receta de PyInstaller para Ilahi.
 
-Genera un único ejecutable portable (dist/HymnChords.exe), sin consola y con
+Genera un único ejecutable portable (dist/Ilahi.exe), sin consola y con
 ícono propio. Compilar con:
 
-    pyinstaller HymnChords.spec --clean --noconfirm
+    pyinstaller Ilahi.spec --clean --noconfirm
 
 o, más simple, con ./build.ps1
 """
@@ -40,7 +40,7 @@ exe = EXE(
     a.zipfiles,
     a.datas,
     [],
-    name='HymnChords',
+    name='Ilahi',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,

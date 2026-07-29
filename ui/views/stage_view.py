@@ -8,6 +8,7 @@ import customtkinter as ctk
 from models.song import Song
 from models.transposer import display_song
 from ui.app import THEME, ctk_button_style
+from ui.preferences import load_stage_font_size, save_stage_font_size
 from ui.widgets.chord_grid import ChordGrid, STAGE_LYRIC_SIZE_DEFAULT
 
 # Velocidad de scroll automático: píxeles por segundo, independiente del largo
@@ -37,7 +38,9 @@ class StageView:
             self._items = [(song, offset)]
         self._index = max(0, min(index, len(self._items) - 1))
         self._base, self._offset = self._items[self._index]
-        self._lyric_size = STAGE_LYRIC_SIZE_DEFAULT
+        # Preferencia global y persistente: el tamaño elegido vale para todas las
+        # canciones (y para la vista escenario inline del editor).
+        self._lyric_size = load_stage_font_size(STAGE_LYRIC_SIZE_DEFAULT)
 
         self._scrolling = False
         self._scroll_after: str | None = None
@@ -219,6 +222,7 @@ class StageView:
     def _change_font(self, delta: int) -> None:
         self._lyric_size = max(10, self._lyric_size + delta)
         self._grid.set_stage_font_size(self._lyric_size)
+        save_stage_font_size(self._lyric_size)
         self._update_title()
         self.top.after_idle(self._center)
 

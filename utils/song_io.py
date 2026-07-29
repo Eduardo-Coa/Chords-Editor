@@ -1,4 +1,4 @@
-"""Exportar e importar canciones como archivos .hymnchords (JSON).
+"""Exportar e importar canciones como archivos .ilahi (JSON).
 
 Formato de intercambio para pasar una canción entre usuarios de la app. La fuente
 de verdad sigue siendo SQLite; esto es solo una capa de transporte por encima.
@@ -7,6 +7,10 @@ El JSON NO incluye los ``id`` de base de datos ni las ``position`` (el orden de 
 listas las reconstruye), de modo que al importar la canción entra siempre como
 nueva (``id`` en None → INSERT). Se exporta el tono ORIGINAL guardado: la
 transposición de la UI es solo visual y no afecta al archivo.
+
+La app se llamó **HymnChords** antes: los archivos ``.hymnchords`` (y sus
+identificadores ``hymnchords-song`` / ``hymnchords-bundle``) se siguen abriendo sin
+problema; solo cambia lo que se **escribe**.
 """
 
 from __future__ import annotations
@@ -17,17 +21,22 @@ from pathlib import Path
 from models.song import Song, Section, Line, Syllable, Chord
 
 # Identificador y versión del formato (subir la versión al cambiar el esquema).
-FORMAT_NAME = "hymnchords-song"
+FORMAT_NAME = "ilahi-song"
 FORMAT_VERSION = 1
 
 # Formato de "cancionero": un solo archivo que agrupa varias canciones (p. ej.
-# todas las de un autor). Comparte la extensión .hymnchords; la importación
-# distingue por el campo "format" (canción suelta vs. cancionero).
-BUNDLE_FORMAT_NAME = "hymnchords-bundle"
+# todas las de un autor). Comparte la extensión .ilahi; la importación distingue
+# por el campo "format" (canción suelta vs. cancionero).
+BUNDLE_FORMAT_NAME = "ilahi-bundle"
 BUNDLE_FORMAT_VERSION = 1
 
-# Extensión de los archivos de canción exportados.
-SONG_FILE_EXTENSION = ".hymnchords"
+# Identificadores heredados de HymnChords: se aceptan al leer, nunca se escriben.
+LEGACY_FORMAT_NAMES = {"hymnchords-song"}
+LEGACY_BUNDLE_FORMAT_NAMES = {"hymnchords-bundle"}
+
+# Extensión de los archivos de canción exportados (la vieja se sigue abriendo).
+SONG_FILE_EXTENSION = ".ilahi"
+LEGACY_FILE_EXTENSION = ".hymnchords"
 
 # Tipos de sección válidos: deben coincidir con el CHECK de la tabla `sections`.
 _VALID_SECTION_TYPES = {"verse", "chorus", "bridge", "intro", "outro"}
@@ -87,14 +96,14 @@ def dict_to_song(data: dict) -> Song:
     """
     if not isinstance(data, dict):
         raise SongIOError("El archivo no contiene una canción válida.")
-    if data.get("format") != FORMAT_NAME:
-        raise SongIOError("El archivo no es una canción de HymnChords.")
+    if data.get("format") not in {FORMAT_NAME, *LEGACY_FORMAT_NAMES}:
+        raise SongIOError("El archivo no es una canción de Ilahi.")
 
     version = data.get("version")
     if not isinstance(version, int) or version > FORMAT_VERSION:
         raise SongIOError(
             f"Versión de archivo no compatible (v{version}). "
-            "Actualiza HymnChords para abrir esta canción."
+            "Actualiza Ilahi para abrir esta canción."
         )
 
     title = data.get("title")
@@ -191,7 +200,7 @@ def _read_json(path: str | Path) -> object:
 
 
 def import_song(path: str | Path) -> Song:
-    """Lee y reconstruye una única canción desde un ``.hymnchords``."""
+    """Lee y reconstruye una única canción desde un ``.ilahi``."""
     return dict_to_song(_read_json(path))
 
 
@@ -204,11 +213,11 @@ def load_songs(path: str | Path) -> list[Song]:
     """
     data = _read_json(path)
     fmt = data.get("format") if isinstance(data, dict) else None
-    if fmt == BUNDLE_FORMAT_NAME:
+    if fmt in {BUNDLE_FORMAT_NAME, *LEGACY_BUNDLE_FORMAT_NAMES}:
         return _bundle_to_songs(data)  # type: ignore[arg-type]
-    if fmt == FORMAT_NAME:
+    if fmt in {FORMAT_NAME, *LEGACY_FORMAT_NAMES}:
         return [dict_to_song(data)]  # type: ignore[arg-type]
-    raise SongIOError("El archivo no es una canción ni un cancionero de HymnChords.")
+    raise SongIOError("El archivo no es una canción ni un cancionero de Ilahi.")
 
 
 def _bundle_to_songs(data: dict) -> list[Song]:
@@ -217,7 +226,7 @@ def _bundle_to_songs(data: dict) -> list[Song]:
     if not isinstance(version, int) or version > BUNDLE_FORMAT_VERSION:
         raise SongIOError(
             f"Versión de cancionero no compatible (v{version}). "
-            "Actualiza HymnChords para abrir este archivo."
+            "Actualiza Ilahi para abrir este archivo."
         )
     songs_data = data.get("songs")
     if not isinstance(songs_data, list):

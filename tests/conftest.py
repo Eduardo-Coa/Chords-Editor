@@ -14,7 +14,7 @@ def db(tmp_path) -> Database:
     ``tmp_path`` es único por test y pytest lo elimina al terminar, así que nunca
     se toca la biblioteca real del usuario.
     """
-    config = DBConfig(path=tmp_path / "hymnchords_test.db")
+    config = DBConfig(path=tmp_path / "ilahi_test.db")
     database = Database(config)
     database.init_schema()
     yield database

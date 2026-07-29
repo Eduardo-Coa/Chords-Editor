@@ -1,4 +1,4 @@
-# Compila HymnChords en un unico .exe portable.
+# Compila Ilahi en un unico .exe portable.
 # Uso:  ./build.ps1
 # Nota: texto sin acentos a proposito (PowerShell 5.1 lee .ps1 como ANSI; asi se
 # evita el mojibake en los mensajes).
@@ -40,10 +40,10 @@ if (-not (Test-Path $icon)) {
 }
 
 Write-Host "Empaquetando con PyInstaller..." -ForegroundColor Cyan
-Invoke-Native $py @("-m", "PyInstaller", (Join-Path $root "HymnChords.spec"),
+Invoke-Native $py @("-m", "PyInstaller", (Join-Path $root "Ilahi.spec"),
                     "--clean", "--noconfirm")
 
-$exe = Join-Path $root "dist\HymnChords.exe"
+$exe = Join-Path $root "dist\Ilahi.exe"
 if (Test-Path $exe) {
     Write-Host "`nListo: $exe" -ForegroundColor Green
 } else {

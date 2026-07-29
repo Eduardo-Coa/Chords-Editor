@@ -1,4 +1,4 @@
-"""Ventana principal de HymnChords y constantes de tema visual."""
+"""Ventana principal de Ilahi y constantes de tema visual."""
 
 from __future__ import annotations
 import sys
@@ -109,7 +109,7 @@ def ctk_button_style(kind: str = "normal", font: tuple | None = None) -> dict:
 # ----------------------------------------------------------------------
 
 class App:
-    """Controlador principal de la interfaz de HymnChords."""
+    """Controlador principal de la interfaz de Ilahi."""
 
     def __init__(self, root: tk.Tk, db: Database) -> None:
         self.root = root
@@ -190,7 +190,7 @@ class App:
         """Abre la vista escenario para una canción suelta."""
         from ui.views.stage_view import StageView
 
-        StageView(self.root, song, offset)
+        self._track_stage_font(StageView(self.root, song, offset))
 
     def _open_setlist_stage(self, setlist) -> None:
         """Abre la presentación: la lista completa en vista escenario."""
@@ -201,4 +201,16 @@ class App:
             for item in setlist.items
         ]
         if playlist:
-            StageView(self.root, playlist=playlist)
+            self._track_stage_font(StageView(self.root, playlist=playlist))
+
+    def _track_stage_font(self, stage) -> None:
+        """Al cerrar el escenario, adopta en el editor el tamaño de fuente elegido allí.
+
+        El tamaño ya quedó persistido en ``preferences.json``; esto solo evita que
+        el editor siga mostrando el valor viejo en la misma sesión.
+        """
+        def _on_destroy(event: tk.Event) -> None:
+            if event.widget is stage.top:
+                self.edit_view.sync_stage_font_size()
+
+        stage.top.bind("<Destroy>", _on_destroy, add=True)

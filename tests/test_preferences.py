@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from ui.preferences import load_preferences, save_preference
+from ui.preferences import (load_preferences, save_preference,
+                            load_stage_font_size, save_stage_font_size)
 
 
 def test_load_sin_archivo_devuelve_vacio(tmp_path):
@@ -28,3 +29,32 @@ def test_archivo_corrupto_devuelve_vacio(tmp_path):
     path = tmp_path / "prefs.json"
     path.write_text("esto no es json", encoding="utf-8")
     assert load_preferences(path) == {}
+
+
+def test_tamano_fuente_sin_guardar_usa_default(tmp_path):
+    assert load_stage_font_size(12, tmp_path / "prefs.json") == 12
+
+
+def test_tamano_fuente_persiste(tmp_path):
+    path = tmp_path / "prefs.json"
+    save_stage_font_size(20, path)
+    assert load_stage_font_size(12, path) == 20
+
+
+def test_tamano_fuente_invalido_usa_default(tmp_path):
+    path = tmp_path / "prefs.json"
+    save_preference("stage_lyric_size", "grande", path)
+    assert load_stage_font_size(12, path) == 12
+
+
+def test_tamano_fuente_respeta_minimo(tmp_path):
+    path = tmp_path / "prefs.json"
+    save_stage_font_size(2, path)
+    assert load_stage_font_size(12, path) == 10
+
+
+def test_tamano_fuente_conserva_color(tmp_path):
+    path = tmp_path / "prefs.json"
+    save_preference("chord_color", "#ff8800", path)
+    save_stage_font_size(18, path)
+    assert load_preferences(path)["chord_color"] == "#ff8800"

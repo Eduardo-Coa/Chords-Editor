@@ -1,4 +1,4 @@
-"""Pruebas de exportación/importación de canciones (.hymnchords)."""
+"""Pruebas de exportación/importación de canciones (.ilahi)."""
 
 from __future__ import annotations
 import json
@@ -64,7 +64,7 @@ def test_import_resetea_ids_a_none():
 
 
 def test_archivo_lleva_formato_y_version(tmp_path):
-    path = tmp_path / "c.hymnchords"
+    path = tmp_path / "c.ilahi"
     export_song(_song_ejemplo(), path)
     data = json.loads(path.read_text(encoding="utf-8"))
     assert data["format"] == FORMAT_NAME
@@ -72,7 +72,7 @@ def test_archivo_lleva_formato_y_version(tmp_path):
 
 
 def test_round_trip_en_disco_conserva_acentos(tmp_path):
-    path = tmp_path / "c.hymnchords"
+    path = tmp_path / "c.ilahi"
     export_song(_song_ejemplo(), path)
     # Acentos legibles en el archivo (no escapados como \uXXXX)
     assert "Ñandú" in path.read_text(encoding="utf-8")
@@ -80,7 +80,7 @@ def test_round_trip_en_disco_conserva_acentos(tmp_path):
 
 
 def test_import_json_corrupto(tmp_path):
-    path = tmp_path / "malo.hymnchords"
+    path = tmp_path / "malo.ilahi"
     path.write_text("{ esto no es json", encoding="utf-8")
     with pytest.raises(SongIOError):
         import_song(path)
@@ -112,6 +112,20 @@ def test_import_sin_titulo():
 
 def test_suggested_filename_sanea_caracteres():
     name = suggested_filename(Song(id=None, title='Aviva: tu/fuego?'))
-    assert name.endswith(".hymnchords")
+    assert name.endswith(".ilahi")
     for ch in '<>:"/\\|?*':
         assert ch not in name
+
+
+def test_import_acepta_formato_heredado_hymnchords():
+    """Los archivos exportados cuando la app se llamaba HymnChords siguen abriendo."""
+    data = song_to_dict(_song_ejemplo())
+    data["format"] = "hymnchords-song"
+    restored = dict_to_song(data)
+    assert restored.title == "Canción Ñandú"
+
+
+def test_export_escribe_el_formato_nuevo(tmp_path):
+    path = tmp_path / "c.ilahi"
+    export_song(_song_ejemplo(), path)
+    assert json.loads(path.read_text(encoding="utf-8"))["format"] == "ilahi-song"

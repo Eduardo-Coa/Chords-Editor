@@ -22,7 +22,7 @@ def _song(title: str = "X") -> Song:
 
 
 def _backups(db_path) -> list:
-    return sorted((db_path.parent / "backups").glob("hymnchords-*.db"))
+    return sorted((db_path.parent / "backups").glob("ilahi-*.db"))
 
 
 def test_backup_crea_archivo(tmp_path):
@@ -74,7 +74,7 @@ def test_setup_logging_idempotente(tmp_path):
     count2 = sum(isinstance(h, RotatingFileHandler) for h in logger.handlers)
     try:
         assert count2 == count1  # no duplica el handler
-        assert (tmp_path / "hymnchords.log").exists()
+        assert (tmp_path / "ilahi.log").exists()
     finally:
         # Limpiar el handler que apunta al tmp para no contaminar otros tests.
         for h in list(logger.handlers):

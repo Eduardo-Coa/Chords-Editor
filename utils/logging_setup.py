@@ -1,4 +1,4 @@
-"""Configuración del logging de HymnChords: archivo rotativo en la carpeta de datos.
+"""Configuración del logging de Ilahi: archivo rotativo en la carpeta de datos.
 
 El log vive en la carpeta de datos del usuario (la misma que la BD y las
 preferencias), no junto al ``.exe``. Se configura una vez al arrancar.
@@ -12,14 +12,14 @@ from pathlib import Path
 
 from database.config import data_dir
 
-LOGGER_NAME = "hymnchords"
-_LOG_FILENAME = "hymnchords.log"
+LOGGER_NAME = "ilahi"
+_LOG_FILENAME = "ilahi.log"
 
 
 def setup_logging(
     level: int = logging.INFO, log_dir: Path | None = None
 ) -> logging.Logger:
-    """Configura el logger 'hymnchords' con un archivo rotativo. Idempotente.
+    """Configura el logger 'ilahi' con un archivo rotativo. Idempotente.
 
     Llamarlo más de una vez no duplica el handler. ``log_dir`` permite a los tests
     escribir en una carpeta temporal en vez de la carpeta de datos real.
